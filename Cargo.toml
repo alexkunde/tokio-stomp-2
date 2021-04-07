@@ -1,6 +1,6 @@
 [package]
 name = "tokio-stomp-2"
-version = "0.0.2"
+version = "0.0.3"
 description = "Fork of Asynchronous streaming STOMP client"
 authors = ["Alex Whitney <adwhit@fastmail.com>, Alexander Kunde <alexander.kunde@hamburgsud.com>, Jens Walter <jens.walter@apimeister.com>"]
 repository = "http://github.com/schoki040/tokio-stomp-2"
