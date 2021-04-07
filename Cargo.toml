@@ -1,0 +1,23 @@
+[package]
+name = "tokio-stomp-2"
+version = "0.0.1"
+description = "Asynchronous streaming STOMP client"
+authors = ["Alex Whitney <adwhit@fastmail.com>, Alexander Kunde <alexander.kunde@hamburgsud.com>, Jens Walter <jens.walter@apimeister.com>"]
+repository = "http://github.com/schoki040/tokio-stomp-2"
+homepage = "http://github.com/schoki040/tokio-stomp-2"
+keywords = ["stomp", "tokio", "streaming"]
+license = "MIT"
+readme = "README.md"
+edition = "2018"
+
+[dependencies]
+bytes = "0.5.4"
+custom_debug_derive = "0.4.0"
+failure = "0.1.6"
+futures = "0.3"
+tokio = { version = "0.2.11", features = ["net"] }
+tokio-util = { version = "0.2.0", features = ["codec"] }
+nom = "4"
+
+[dev-dependencies]
+tokio = { version = "0.2.11", features = ["time", "macros"] }
