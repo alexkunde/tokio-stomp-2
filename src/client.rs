@@ -88,11 +88,10 @@ impl Decoder for ClientCodec {
     }
 }
 
-impl Encoder for ClientCodec {
-    type Item = Message<ToServer>;
+impl Encoder<Message<ToServer>> for ClientCodec {
     type Error = failure::Error;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<()> {
+    fn encode(&mut self, item: Message<ToServer>, dst: &mut BytesMut) -> Result<()> {
         item.to_frame().serialize(dst);
         Ok(())
     }

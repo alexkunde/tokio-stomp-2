@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::prelude::*;
-use tokio_stomp::*;
+use tokio_stomp_2::*;
 
 // This examples consists of two futures, each of which connects to a local server,
 // and then sends either PING or PONG messages to the server while listening
@@ -11,7 +11,7 @@ use tokio_stomp::*;
 // `docker run -p 61613:61613 rmohr/activemq:latest`
 
 async fn client(listens: &str, sends: &str, msg: &[u8]) -> Result<(), failure::Error> {
-    let mut conn = tokio_stomp::client::connect("127.0.0.1:61613", None, None).await?;
+    let mut conn = client::connect("127.0.0.1:61613", None, None).await?;
     conn.send(client::subscribe(listens, "myid")).await?;
 
     loop {
@@ -19,6 +19,7 @@ async fn client(listens: &str, sends: &str, msg: &[u8]) -> Result<(), failure::E
             ToServer::Send {
                 destination: sends.into(),
                 transaction: None,
+                headers: vec!(),
                 body: Some(msg.to_vec()),
             }
             .into(),
@@ -30,7 +31,7 @@ async fn client(listens: &str, sends: &str, msg: &[u8]) -> Result<(), failure::E
         } else {
             failure::bail!("Unexpected: {:?}", msg)
         }
-        tokio::time::delay_for(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 

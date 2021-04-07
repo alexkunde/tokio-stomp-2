@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures::future::ok;
 use futures::prelude::*;
-use tokio_stomp::*;
+use tokio_stomp_2::*;
 
 // The example connects to a local server, then sends the following messages -
 // subscribe to a destination, send a message to the destination, unsubscribe and disconnect
@@ -16,7 +16,7 @@ use tokio_stomp::*;
 async fn main() -> Result<(), failure::Error> {
     let conn = client::connect("127.0.0.1:61613", None, None).await?;
 
-    tokio::time::delay_for(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let (mut sink, stream) = conn.split();
 
@@ -24,12 +24,13 @@ async fn main() -> Result<(), failure::Error> {
         sink.send(client::subscribe("rusty", "myid")).await?;
         println!("Subscribe sent");
 
-        tokio::time::delay_for(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         sink.send(
             ToServer::Send {
                 destination: "rusty".into(),
                 transaction: None,
+                headers: vec!(),
                 body: Some(b"Hello there rustaceans!".to_vec()),
             }
             .into(),
@@ -37,15 +38,15 @@ async fn main() -> Result<(), failure::Error> {
         .await?;
         println!("Message sent");
 
-        tokio::time::delay_for(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         sink.send(ToServer::Unsubscribe { id: "myid".into() }.into())
             .await?;
         println!("Unsubscribe sent");
 
-        tokio::time::delay_for(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        tokio::time::delay_for(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
         sink.send(ToServer::Disconnect { receipt: None }.into())
             .await?;
         println!("Disconnect sent");
