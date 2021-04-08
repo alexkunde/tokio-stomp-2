@@ -1,8 +1,9 @@
 [package]
 name = "tokio-stomp-2"
-version = "0.0.4"
-description = "Fork of Asynchronous streaming STOMP client"
-authors = ["Alex Whitney <adwhit@fastmail.com>, Alexander Kunde <alexander.kunde@hamburgsud.com>, Jens Walter <jens.walter@apimeister.com>"]
+version = "0.1.0"
+description = "Unofficial successor to Asynchronous streaming STOMP client"
+authors = ["Alexander Kunde <alexander.kunde@hamburgsud.com>, Jens Walter <jens.walter@apimeister.com>"]
+original-authors = ["Alex Whitney <adwhit@fastmail.com>"]
 repository = "http://github.com/schoki040/tokio-stomp-2"
 homepage = "http://github.com/schoki040/tokio-stomp-2"
 keywords = ["stomp", "tokio", "streaming"]
