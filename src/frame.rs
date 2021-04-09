@@ -20,8 +20,7 @@ impl<'a> Frame<'a> {
         headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
         body: Option<&'a [u8]>,
     ) -> Frame<'a> {
-        let headers = headers
-            .iter()
+        let headers = headers.iter()
             // filter out headers with None value
             .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
             .collect();
@@ -95,12 +94,9 @@ named!(eol, preceded!(opt!(tag!("\r")), tag!("\n")));
 named!(
     parse_header<(&[u8], Cow<[u8]>)>,
     pair!(
-        take_until_either!(":\n"),
-        preceded!(
-            tag!(":"),
-            map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(
-                strip_cr(bytes)
-            ))
+        take_until!(":\n"), preceded!(
+            // tag!(":"), map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(strip_cr(bytes)))
+            tag!(":"), map!(recognize!(take_until1!("\n")), |bytes| Cow::Borrowed(strip_cr(bytes)))
         )
     )
 );
@@ -128,7 +124,8 @@ named!(
     pub(crate) parse_frame<Frame>,
     do_parse!(
         many0!(eol)
-            >> command: map!(take_until_and_consume!("\n"), strip_cr)
+            // >> command: map!(take_until_and_consume!("\n"), strip_cr)
+            >> command: map!(recognize!(take_until!("\n")), strip_cr)
             >> headers: many0!(parse_header)
             >> eol
             >> body: switch!(value!(get_content_length(&*headers)),
