@@ -1,6 +1,6 @@
 [package]
 name = "tokio-stomp-2"
-version = "0.1.1"
+version = "0.1.2"
 description = "Unofficial successor to Asynchronous streaming STOMP client"
 authors = ["Jens Walter <jens@apimeister.com>, Alexander Kunde <alexander.kunde@hamburgsud.com>"]
 original-authors = ["Alex Whitney <adwhit@fastmail.com>"]
@@ -18,7 +18,7 @@ failure = "0.1.8"
 futures = "0.3"
 tokio = { version = "1", features = ["net"] }
 tokio-util = { version = "0.6", features = ["codec"] }
-nom = "6"
+nom = "4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

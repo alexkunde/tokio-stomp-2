@@ -10,35 +10,27 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 type ClientTransport = Framed<TcpStream, ClientCodec>;
 
 use crate::frame;
+
 use crate::{FromServer, Message, Result, ToServer};
 
 /// Connect to a STOMP server via TCP, including the connection handshake.
 /// If successful, returns a tuple of a message stream and a sender,
 /// which may be used to receive and send messages respectively.
-pub async fn connect(
-    address: impl Into<String>,
-    login: Option<String>,
-    passcode: Option<String>,
-) -> Result<
-    impl Stream<Item = Result<Message<FromServer>>> + Sink<Message<ToServer>, Error = failure::Error>,
-> {
-    let address = address.into();
-    let addr = address.as_str().to_socket_addrs().unwrap().next().unwrap();
-    let tcp = TcpStream::connect(&addr).await?;
-    let mut transport = ClientCodec.framed(tcp);
-    client_handshake(&mut transport, address, login, passcode).await?;
-    Ok(transport)
-}
+pub async fn connect( address: &str, login: Option<String>, passcode: Option<String>,) 
+    -> Result<impl Stream<Item = Result<Message<FromServer>>> 
+    + Sink<Message<ToServer>, Error = failure::Error>,> {
+        let addr = address.to_socket_addrs().unwrap().next().unwrap();
+        let tcp = TcpStream::connect(&addr).await?;
+        let mut transport = ClientCodec.framed(tcp);
+        client_handshake(&mut transport, address.to_string(), login, passcode).await?;
+        return Ok(transport);
+    }
 
-async fn client_handshake(
-    transport: &mut ClientTransport,
-    host: String,
-    login: Option<String>,
-    passcode: Option<String>,
-) -> Result<()> {
+async fn client_handshake( transport: &mut ClientTransport, host: String, 
+    login: Option<String>, passcode: Option<String>,) -> Result<()> {
     let connect = Message {
         content: ToServer::Connect {
-            accept_version: "1.2".into(),
+            accept_version: String::from("1.2"),
             host: host,
             login: login,
             passcode: passcode,
@@ -53,13 +45,13 @@ async fn client_handshake(
     if let Some(FromServer::Connected { .. }) = msg.as_ref().map(|m| &m.content) {
         Ok(())
     } else {
-        Err(failure::format_err!("unexpected reply: {:?}", msg))
+        Err(failure::format_err!("Handshake error, unexpected reply: {:?}", msg))
     }
 }
 
 /// Convenience function to build a Subscribe message
-#[allow(dead_code)]
-pub fn subscribe(dest: impl Into<String>, id: impl Into<String>) -> Message<ToServer> {
+// #[allow(dead_code)]
+pub fn subscribe(dest: &str, id: &str) -> Message<ToServer> {
     ToServer::Subscribe {
         destination: dest.into(),
         id: id.into(),

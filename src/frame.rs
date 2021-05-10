@@ -15,50 +15,36 @@ pub(crate) struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
-    pub(crate) fn new(
-        command: &'a [u8],
-        headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
-        body: Option<&'a [u8]>,
-    ) -> Frame<'a> {
+
+    pub(crate) fn new(command: &'a [u8], headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
+        body: Option<&'a [u8]> ) -> Frame<'a> {
         let headers = headers.iter()
             // filter out headers with None value
             .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
             .collect();
-        Frame {
-            command,
-            headers,
-            body,
-        }
+        return Frame { command, headers, body };
     }
 
     pub(crate) fn serialize(&self, buffer: &mut BytesMut) {
+        
         fn write_escaped(b: u8, buffer: &mut BytesMut) {
+
             match b {
-                b'\r' => {
-                    buffer.put_u8(b'\\');
-                    buffer.put_u8(b'r')
-                }
-                b'\n' => {
-                    buffer.put_u8(b'\\');
-                    buffer.put_u8(b'n')
-                }
-                b':' => {
-                    buffer.put_u8(b'\\');
-                    buffer.put_u8(b'c')
-                }
-                b'\\' => {
-                    buffer.put_u8(b'\\');
-                    buffer.put_u8(b'\\')
-                }
+                b'\r' => 
+                    buffer.put_slice(b"\\r"),
+                b'\n' => 
+                    buffer.put_slice(b"\\n"),
+                b':' => 
+                    buffer.put_slice(b"\\c"),
+                b'\\' => 
+                    buffer.put_slice(b"\\\\"),
                 b => buffer.put_u8(b),
             }
         }
+
         let requires = self.command.len()
             + self.body.map(|b| b.len() + 20).unwrap_or(0)
-            + self
-                .headers
-                .iter()
-                .fold(0, |acc, &(ref k, ref v)| acc + k.len() + v.len())
+            + self.headers.iter().fold(0, |acc, &(ref k, ref v)| acc + k.len() + v.len())
             + 30;
         if buffer.remaining_mut() < requires {
             buffer.reserve(requires);
@@ -94,9 +80,12 @@ named!(eol, preceded!(opt!(tag!("\r")), tag!("\n")));
 named!(
     parse_header<(&[u8], Cow<[u8]>)>,
     pair!(
-        take_until!(":\n"), preceded!(
-            // tag!(":"), map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(strip_cr(bytes)))
-            tag!(":"), map!(recognize!(take_until1!("\n")), |bytes| Cow::Borrowed(strip_cr(bytes)))
+        take_until_either!(":\n"),
+        preceded!(
+            tag!(":"),
+            map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(
+                strip_cr(bytes)
+            ))
         )
     )
 );
@@ -124,8 +113,7 @@ named!(
     pub(crate) parse_frame<Frame>,
     do_parse!(
         many0!(eol)
-            // >> command: map!(take_until_and_consume!("\n"), strip_cr)
-            >> command: map!(recognize!(take_until!("\n")), strip_cr)
+            >> command: map!(take_until_and_consume!("\n"), strip_cr)
             >> headers: many0!(parse_header)
             >> eol
             >> body: switch!(value!(get_content_length(&*headers)),
@@ -365,12 +353,7 @@ impl ToServer {
         use Cow::*;
         use ToServer::*;
         match *self {
-            Connect {
-                ref accept_version,
-                ref host,
-                ref login,
-                ref passcode,
-                ref heartbeat,
+            Connect { ref accept_version, ref host, ref login, ref passcode, ref heartbeat,
             } => Frame::new(
                 b"CONNECT",
                 &[
@@ -378,47 +361,35 @@ impl ToServer {
                     (b"host", Some(Borrowed(host.as_bytes()))),
                     (b"login", sb(login)),
                     (b"passcode", sb(passcode)),
-                    (
-                        b"heart-beat",
+                    (b"heart-beat", 
                         heartbeat.map(|(v1, v2)| Owned(format!("{},{}", v1, v2).into())),
                     ),
                 ],
                 None,
             ),
-            Disconnect { ref receipt } => {
-                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None)
-            }
-            Subscribe {
-                ref destination,
-                ref id,
-                ref ack,
-            } => Frame::new(
+
+            Disconnect { ref receipt } => 
+                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None),
+
+            Subscribe { ref destination, ref id, ref ack, } => 
+                Frame::new(
                 b"SUBSCRIBE",
                 &[
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", Some(Borrowed(id.as_bytes()))),
-                    (
-                        b"ack",
-                        ack.map(|ack| match ack {
+                    (b"ack", ack.map(|ack| match ack {
                             AckMode::Auto => Borrowed(&b"auto"[..]),
                             AckMode::Client => Borrowed(&b"client"[..]),
                             AckMode::ClientIndividual => Borrowed(&b"client-individual"[..]),
-                        }),
-                    ),
-                ],
+                        }))],
                 None,
             ),
-            Unsubscribe { ref id } => Frame::new(
-                b"UNSUBSCRIBE",
-                &[(b"id", Some(Borrowed(id.as_bytes())))],
-                None,
-            ),
-            Send {
-                ref destination,
-                ref transaction,
-                ref headers,
-                ref body,
-            } => {
+
+            Unsubscribe { ref id } => 
+                Frame::new(b"UNSUBSCRIBE", &[(b"id", Some(Borrowed(id.as_bytes())))], None),
+            
+            Send { ref destination, ref transaction, ref headers, ref body, } => 
+            {
                 let mut hdr: Vec<(&[u8],Option<Cow<[u8]>>)> = vec![
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", sb(transaction)),
@@ -426,44 +397,39 @@ impl ToServer {
                 for (key,val) in headers {
                     hdr.push((key, Some(Borrowed(val))));
                 }
-                Frame::new(
-                    b"SEND",
-                    &hdr,
-                    body.as_ref().map(|v| v.as_ref()),
-                )
+                Frame::new(b"SEND", &hdr, body.as_ref().map(|v| v.as_ref()))
             },
-            Ack {
-                ref id,
-                ref transaction,
-            } => Frame::new(
-                b"ACK",
+
+            Ack { ref id, ref transaction } => 
+                Frame::new(b"ACK",
+                &[  
+                    (b"id", Some(Borrowed(id.as_bytes()))),
+                    (b"transaction", sb(transaction)),
+                ],
+                None,
+            ),
+
+            Nack { ref id, ref transaction, } => 
+                Frame::new(b"NACK",
                 &[
                     (b"id", Some(Borrowed(id.as_bytes()))),
                     (b"transaction", sb(transaction)),
                 ],
                 None,
             ),
-            Nack {
-                ref id,
-                ref transaction,
-            } => Frame::new(
-                b"NACK",
-                &[
-                    (b"id", Some(Borrowed(id.as_bytes()))),
-                    (b"transaction", sb(transaction)),
-                ],
-                None,
-            ),
+
             Begin { ref transaction } => Frame::new(
                 b"BEGIN",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
                 None,
             ),
+
             Commit { ref transaction } => Frame::new(
                 b"COMMIT",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
                 None,
             ),
+
             Abort { ref transaction } => Frame::new(
                 b"ABORT",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
@@ -482,8 +448,7 @@ mod tests {
         let data = b"CONNECT
 accept-version:1.2
 host:datafeeds.here.co.uk
-login:user
-passcode:password\n\n\x00"
+login:user\npasscode:password\n\n\x00"
             .to_vec();
         let (_, frame) = parse_frame(&data).unwrap();
         assert_eq!(frame.command, b"CONNECT");
