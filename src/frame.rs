@@ -395,7 +395,7 @@ impl ToServer {
                     (b"id", sb(transaction)),
                 ];
                 for (key,val) in headers {
-                    hdr.push((key, Some(Borrowed(val))));
+                    hdr.push((key.as_bytes(), Some(Borrowed(val.as_bytes()))));
                 }
                 Frame::new(b"SEND", &hdr, body.as_ref().map(|v| v.as_ref()))
             },

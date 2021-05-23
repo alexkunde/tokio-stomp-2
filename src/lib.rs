@@ -87,7 +87,7 @@ pub enum ToServer {
     Send {
         destination: String,
         transaction: Option<String>,
-        headers: Vec<(Vec<u8>, Vec<u8>)>,
+        headers: Vec<(String, String)>,
         body: Option<Vec<u8>>,
     },
     /// Register to listen to a given destination
