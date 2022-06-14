@@ -25,11 +25,11 @@ impl<'a> Frame<'a> {
             // filter out headers with None value
             .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
             .collect();
-        return Frame {
+        Frame {
             command,
             headers,
             body,
-        };
+        }
     }
 
     pub(crate) fn serialize(&self, buffer: &mut BytesMut) {
@@ -161,7 +161,7 @@ fn all_headers<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)]) -> Vec<(String, Str
         );
         res.push(entry);
     }
-    return res;
+    res
 }
 
 fn expect_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> Result<String> {
@@ -348,7 +348,7 @@ fn get_content_length_header(body: &[u8]) -> Vec<u8> {
 }
 
 fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
-    let mut split = hb.splitn(1, ',');
+    let mut split = hb.splitn(2, ',');
     let left = split.next().ok_or_else(|| anyhow!("Bad heartbeat"))?;
     let right = split.next().ok_or_else(|| anyhow!("Bad heartbeat"))?;
     Ok((left.parse()?, right.parse()?))
@@ -382,7 +382,7 @@ impl ToServer {
             ),
 
             Disconnect { ref receipt } => {
-                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None)
+                Frame::new(b"DISCONNECT", &[(b"receipt", sb(receipt))], None)
             }
 
             Subscribe {

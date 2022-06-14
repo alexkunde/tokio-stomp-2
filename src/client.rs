@@ -25,7 +25,7 @@ pub async fn connect(
     let tcp = TcpStream::connect(&addr).await?;
     let mut transport = ClientCodec.framed(tcp);
     client_handshake(&mut transport, address.to_string(), login, passcode).await?;
-    return Ok(transport);
+    Ok(transport)
 }
 
 async fn client_handshake(
@@ -37,9 +37,9 @@ async fn client_handshake(
     let connect = Message {
         content: ToServer::Connect {
             accept_version: String::from("1.2"),
-            host: host,
-            login: login,
-            passcode: passcode,
+            host,
+            login,
+            passcode,
             heartbeat: None,
         },
         extra_headers: vec![],
@@ -76,7 +76,7 @@ impl Decoder for ClientCodec {
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
-        let (item, offset) = match frame::parse_frame(&src) {
+        let (item, offset) = match frame::parse_frame(src) {
             Ok((remain, frame)) => (
                 Message::<FromServer>::from_frame(frame),
                 remain.as_ptr() as usize - src.as_ptr() as usize,
