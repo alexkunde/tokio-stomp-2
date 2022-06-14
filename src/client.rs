@@ -16,18 +16,26 @@ use crate::{FromServer, Message, Result, ToServer};
 /// Connect to a STOMP server via TCP, including the connection handshake.
 /// If successful, returns a tuple of a message stream and a sender,
 /// which may be used to receive and send messages respectively.
-pub async fn connect( address: &str, login: Option<String>, passcode: Option<String>,) 
-    -> Result<impl Stream<Item = Result<Message<FromServer>>> 
-    + Sink<Message<ToServer>, Error = failure::Error>,> {
-        let addr = address.to_socket_addrs().unwrap().next().unwrap();
-        let tcp = TcpStream::connect(&addr).await?;
-        let mut transport = ClientCodec.framed(tcp);
-        client_handshake(&mut transport, address.to_string(), login, passcode).await?;
-        return Ok(transport);
-    }
+pub async fn connect(
+    address: &str,
+    login: Option<String>,
+    passcode: Option<String>,
+) -> Result<
+    impl Stream<Item = Result<Message<FromServer>>> + Sink<Message<ToServer>, Error = anyhow::Error>,
+> {
+    let addr = address.to_socket_addrs().unwrap().next().unwrap();
+    let tcp = TcpStream::connect(&addr).await?;
+    let mut transport = ClientCodec.framed(tcp);
+    client_handshake(&mut transport, address.to_string(), login, passcode).await?;
+    return Ok(transport);
+}
 
-async fn client_handshake( transport: &mut ClientTransport, host: String, 
-    login: Option<String>, passcode: Option<String>,) -> Result<()> {
+async fn client_handshake(
+    transport: &mut ClientTransport,
+    host: String,
+    login: Option<String>,
+    passcode: Option<String>,
+) -> Result<()> {
     let connect = Message {
         content: ToServer::Connect {
             accept_version: String::from("1.2"),
@@ -45,7 +53,10 @@ async fn client_handshake( transport: &mut ClientTransport, host: String,
     if let Some(FromServer::Connected { .. }) = msg.as_ref().map(|m| &m.content) {
         Ok(())
     } else {
-        Err(failure::format_err!("Handshake error, unexpected reply: {:?}", msg))
+        Err(anyhow::anyhow!(
+            "Handshake error, unexpected reply: {:?}",
+            msg
+        ))
     }
 }
 
@@ -64,7 +75,7 @@ struct ClientCodec;
 
 impl Decoder for ClientCodec {
     type Item = Message<FromServer>;
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
         let (item, offset) = match frame::parse_frame(&src) {
@@ -73,7 +84,7 @@ impl Decoder for ClientCodec {
                 remain.as_ptr() as usize - src.as_ptr() as usize,
             ),
             Err(nom::Err::Incomplete(_)) => return Ok(None),
-            Err(e) => failure::bail!("Parse failed: {:?}", e),
+            Err(e) => anyhow::bail!("Parse failed: {:?}", e),
         };
         src.advance(offset);
         item.map(|v| Some(v))
@@ -81,7 +92,7 @@ impl Decoder for ClientCodec {
 }
 
 impl Encoder<Message<ToServer>> for ClientCodec {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn encode(&mut self, item: Message<ToServer>, dst: &mut BytesMut) -> Result<()> {
         item.to_frame().serialize(dst);

@@ -8,15 +8,22 @@ use tokio_stomp_2::FromServer;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-  let mut conn = client::connect("127.0.0.1:61613", None, None).await.unwrap();
+    let mut conn = client::connect("127.0.0.1:61613", None, None)
+        .await
+        .unwrap();
 
-  conn.send(client::subscribe("queue.test", "custom-subscriber-id")).await.unwrap();
+    conn.send(client::subscribe("queue.test", "custom-subscriber-id"))
+        .await
+        .unwrap();
 
-  while let Some(item) = conn.next().await {
-    if let FromServer::Message { message_id,body, .. } = item.unwrap().content {
-      println!("{:?}", body);
-      println!("{}", message_id);
+    while let Some(item) = conn.next().await {
+        if let FromServer::Message {
+            message_id, body, ..
+        } = item.unwrap().content
+        {
+            println!("{:?}", body);
+            println!("{}", message_id);
+        }
     }
-  }
-  Ok(())
+    Ok(())
 }
