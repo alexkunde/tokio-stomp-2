@@ -17,7 +17,7 @@ custom_debug = "0.5"
 anyhow = "1.0"
 futures = "0.3"
 tokio = { version = "1", features = ["net"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 nom = "4"
 
 [dev-dependencies]
