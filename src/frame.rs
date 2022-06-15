@@ -1,5 +1,5 @@
+use anyhow::{anyhow, bail};
 use bytes::{BufMut, BytesMut};
-use failure::{bail, format_err};
 
 use std::borrow::Cow;
 
@@ -15,36 +15,40 @@ pub(crate) struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
-
-    pub(crate) fn new(command: &'a [u8], headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
-        body: Option<&'a [u8]> ) -> Frame<'a> {
-        let headers = headers.iter()
+    pub(crate) fn new(
+        command: &'a [u8],
+        headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
+        body: Option<&'a [u8]>,
+    ) -> Frame<'a> {
+        let headers = headers
+            .iter()
             // filter out headers with None value
             .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
             .collect();
-        return Frame { command, headers, body };
+        Frame {
+            command,
+            headers,
+            body,
+        }
     }
 
     pub(crate) fn serialize(&self, buffer: &mut BytesMut) {
-        
         fn write_escaped(b: u8, buffer: &mut BytesMut) {
-
             match b {
-                b'\r' => 
-                    buffer.put_slice(b"\\r"),
-                b'\n' => 
-                    buffer.put_slice(b"\\n"),
-                b':' => 
-                    buffer.put_slice(b"\\c"),
-                b'\\' => 
-                    buffer.put_slice(b"\\\\"),
+                b'\r' => buffer.put_slice(b"\\r"),
+                b'\n' => buffer.put_slice(b"\\n"),
+                b':' => buffer.put_slice(b"\\c"),
+                b'\\' => buffer.put_slice(b"\\\\"),
                 b => buffer.put_u8(b),
             }
         }
 
         let requires = self.command.len()
             + self.body.map(|b| b.len() + 20).unwrap_or(0)
-            + self.headers.iter().fold(0, |acc, &(ref k, ref v)| acc + k.len() + v.len())
+            + self
+                .headers
+                .iter()
+                .fold(0, |acc, &(ref k, ref v)| acc + k.len() + v.len())
             + 30;
         if buffer.remaining_mut() < requires {
             buffer.reserve(requires);
@@ -151,14 +155,17 @@ fn fetch_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> O
 fn all_headers<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)]) -> Vec<(String, String)> {
     let mut res = Vec::new();
     for &(k, ref v) in headers {
-        let entry = (String::from_utf8(k.to_vec()).unwrap(), String::from_utf8(v.to_vec()).unwrap());
+        let entry = (
+            String::from_utf8(k.to_vec()).unwrap(),
+            String::from_utf8(v.to_vec()).unwrap(),
+        );
         res.push(entry);
     }
-    return res;
+    res
 }
 
 fn expect_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> Result<String> {
-    fetch_header(headers, key).ok_or_else(|| format_err!("Expected header '{}' missing", key))
+    fetch_header(headers, key).ok_or_else(|| anyhow!("Expected header '{}' missing", key))
 }
 
 impl<'a> Frame<'a> {
@@ -341,9 +348,9 @@ fn get_content_length_header(body: &[u8]) -> Vec<u8> {
 }
 
 fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
-    let mut split = hb.splitn(1, ',');
-    let left = split.next().ok_or_else(|| format_err!("Bad heartbeat"))?;
-    let right = split.next().ok_or_else(|| format_err!("Bad heartbeat"))?;
+    let mut split = hb.splitn(2, ',');
+    let left = split.next().ok_or_else(|| anyhow!("Bad heartbeat"))?;
+    let right = split.next().ok_or_else(|| anyhow!("Bad heartbeat"))?;
     Ok((left.parse()?, right.parse()?))
 }
 
@@ -353,7 +360,12 @@ impl ToServer {
         use Cow::*;
         use ToServer::*;
         match *self {
-            Connect { ref accept_version, ref host, ref login, ref passcode, ref heartbeat,
+            Connect {
+                ref accept_version,
+                ref host,
+                ref login,
+                ref passcode,
+                ref heartbeat,
             } => Frame::new(
                 b"CONNECT",
                 &[
@@ -361,56 +373,78 @@ impl ToServer {
                     (b"host", Some(Borrowed(host.as_bytes()))),
                     (b"login", sb(login)),
                     (b"passcode", sb(passcode)),
-                    (b"heart-beat", 
+                    (
+                        b"heart-beat",
                         heartbeat.map(|(v1, v2)| Owned(format!("{},{}", v1, v2).into())),
                     ),
                 ],
                 None,
             ),
 
-            Disconnect { ref receipt } => 
-                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None),
+            Disconnect { ref receipt } => {
+                Frame::new(b"DISCONNECT", &[(b"receipt", sb(receipt))], None)
+            }
 
-            Subscribe { ref destination, ref id, ref ack, } => 
-                Frame::new(
+            Subscribe {
+                ref destination,
+                ref id,
+                ref ack,
+            } => Frame::new(
                 b"SUBSCRIBE",
                 &[
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", Some(Borrowed(id.as_bytes()))),
-                    (b"ack", ack.map(|ack| match ack {
+                    (
+                        b"ack",
+                        ack.map(|ack| match ack {
                             AckMode::Auto => Borrowed(&b"auto"[..]),
                             AckMode::Client => Borrowed(&b"client"[..]),
                             AckMode::ClientIndividual => Borrowed(&b"client-individual"[..]),
-                        }))],
+                        }),
+                    ),
+                ],
                 None,
             ),
 
-            Unsubscribe { ref id } => 
-                Frame::new(b"UNSUBSCRIBE", &[(b"id", Some(Borrowed(id.as_bytes())))], None),
-            
-            Send { ref destination, ref transaction, ref headers, ref body, } => 
-            {
-                let mut hdr: Vec<(&[u8],Option<Cow<[u8]>>)> = vec![
+            Unsubscribe { ref id } => Frame::new(
+                b"UNSUBSCRIBE",
+                &[(b"id", Some(Borrowed(id.as_bytes())))],
+                None,
+            ),
+
+            Send {
+                ref destination,
+                ref transaction,
+                ref headers,
+                ref body,
+            } => {
+                let mut hdr: Vec<(&[u8], Option<Cow<[u8]>>)> = vec![
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", sb(transaction)),
                 ];
-                for (key,val) in headers {
+                for (key, val) in headers {
                     hdr.push((key.as_bytes(), Some(Borrowed(val.as_bytes()))));
                 }
                 Frame::new(b"SEND", &hdr, body.as_ref().map(|v| v.as_ref()))
-            },
+            }
 
-            Ack { ref id, ref transaction } => 
-                Frame::new(b"ACK",
-                &[  
+            Ack {
+                ref id,
+                ref transaction,
+            } => Frame::new(
+                b"ACK",
+                &[
                     (b"id", Some(Borrowed(id.as_bytes()))),
                     (b"transaction", sb(transaction)),
                 ],
                 None,
             ),
 
-            Nack { ref id, ref transaction, } => 
-                Frame::new(b"NACK",
+            Nack {
+                ref id,
+                ref transaction,
+            } => Frame::new(
+                b"NACK",
                 &[
                     (b"id", Some(Borrowed(id.as_bytes()))),
                     (b"transaction", sb(transaction)),

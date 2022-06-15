@@ -13,7 +13,7 @@ use tokio_stomp_2::*;
 // `docker run -p 61613:61613 rmohr/activemq:latest`
 
 #[tokio::main]
-async fn main() -> Result<(), failure::Error> {
+async fn main() -> Result<(), anyhow::Error> {
     let conn = client::connect("127.0.0.1:61613", None, None).await?;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -30,7 +30,7 @@ async fn main() -> Result<(), failure::Error> {
             ToServer::Send {
                 destination: "rusty".into(),
                 transaction: None,
-                headers: vec!(),
+                headers: vec![],
                 body: Some(b"Hello there rustaceans!".to_vec()),
             }
             .into(),
