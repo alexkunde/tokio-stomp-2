@@ -4,12 +4,87 @@ use futures::sink::SinkExt;
 
 use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
+use typed_builder::TypedBuilder;
 
 pub type ClientTransport = Framed<TcpStream, ClientCodec>;
 
 use crate::frame;
 use crate::{FromServer, Message, Result, ToServer};
 use anyhow::{anyhow, bail};
+
+/// Create a connection to a STOMP server via TCP, including the connection handshake.
+/// If successful, returns a tuple of a message stream and a sender,
+/// which may be used to receive and send messages respectively.
+///
+/// `virtualhost` If no specific virtualhost is desired, it is recommended
+/// to set this to the same as the host name that the socket
+/// was established against (i.e, the same as the server address).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tokio_stomp_2::client::Connector;
+///
+///#[tokio::main]
+/// async fn main() {
+///   let connection = Connector::builder()
+///     .server("stomp.example.com")
+///     .virtualhost("stomp.example.com")
+///     .login(Some("guest".to_string()))
+///     .passcode(Some("guest".to_string()))
+///     .connect()
+///     .await;
+///}
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(vis="", name=__build))]
+pub struct Connector<S: tokio::net::ToSocketAddrs, V: Into<String>> {
+    /// The address to the stomp server
+    server: S,
+    /// Virtualhost, if no specific virtualhost is desired, it is recommended
+    /// to set this to the same as the host name that the socket
+    virtualhost: V,
+    /// Username to use for optional authentication to the server
+    #[builder(default)]
+    login: Option<String>,
+    /// Passcode to use for optional authentication to the server
+    #[builder(default)]
+    passcode: Option<String>,
+    /// Custom headers to be sent to the server
+    #[builder(default)]
+    headers: Vec<(String, String)>,
+}
+
+#[allow(non_camel_case_types)]
+impl<
+        S: tokio::net::ToSocketAddrs,
+        V: Into<String>,
+        __login: ::typed_builder::Optional<Option<String>>,
+        __passcode: ::typed_builder::Optional<Option<String>>,
+        __headers: ::typed_builder::Optional<Vec<(String, String)>>,
+    > ConnectorBuilder<S, V, ((S,), (V,), __login, __passcode, __headers)>
+{
+    pub async fn connect(self) -> Result<ClientTransport> {
+        let connector = self.__build();
+        connector.connect().await
+    }
+}
+
+impl<S: tokio::net::ToSocketAddrs, V: Into<String>> Connector<S, V> {
+    pub async fn connect(self) -> Result<ClientTransport> {
+        let tcp = TcpStream::connect(self.server).await?;
+        let mut transport = ClientCodec.framed(tcp);
+        client_handshake(
+            &mut transport,
+            self.virtualhost.into(),
+            self.login,
+            self.passcode,
+            self.headers,
+        )
+        .await?;
+        Ok(transport)
+    }
+}
 
 /// Connect to a STOMP server via TCP, including the connection handshake.
 /// If successful, returns a tuple of a message stream and a sender,
@@ -24,10 +99,13 @@ pub async fn connect(
     login: Option<String>,
     passcode: Option<String>,
 ) -> Result<ClientTransport> {
-    let tcp = TcpStream::connect(server).await?;
-    let mut transport = ClientCodec.framed(tcp);
-    client_handshake(&mut transport, virtualhost.into(), login, passcode).await?;
-    Ok(transport)
+    Connector::builder()
+        .server(server)
+        .virtualhost(virtualhost)
+        .login(login)
+        .passcode(passcode)
+        .connect()
+        .await
 }
 
 async fn client_handshake(
@@ -35,7 +113,12 @@ async fn client_handshake(
     virtualhost: String,
     login: Option<String>,
     passcode: Option<String>,
+    headers: Vec<(String, String)>,
 ) -> Result<()> {
+    let extra_headers = headers
+        .iter()
+        .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+        .collect();
     let connect = Message {
         content: ToServer::Connect {
             accept_version: "1.2".into(),
@@ -44,7 +127,7 @@ async fn client_handshake(
             passcode,
             heartbeat: None,
         },
-        extra_headers: vec![],
+        extra_headers,
     };
     // Send the message
     transport.send(connect).await?;
@@ -57,14 +140,78 @@ async fn client_handshake(
     }
 }
 
+/// Builder to create a Subscribe message with optional custom headers
+
+/// # Examples
+///
+/// ```rust,no_run
+/// use futures::prelude::*;
+/// use tokio_stomp_2::client::Connector;
+/// use tokio_stomp_2::client::Subscriber;
+///
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), anyhow::Error> {
+///   let mut connection = Connector::builder()
+///     .server("stomp.example.com")
+///     .virtualhost("stomp.example.com")
+///     .login(Some("guest".to_string()))
+///     .passcode(Some("guest".to_string()))
+///     .headers(vec![("client-id".to_string(), "ClientTest".to_string())])
+///     .connect()
+///     .await.expect("Client connection");
+///   
+///   let subscribe_msg = Subscriber::builder()
+///     .destination("queue.test")
+///     .id("custom-subscriber-id")
+///     .subscribe();
+///
+///   connection.send(subscribe_msg).await?;
+///   Ok(())
+/// }
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(vis="", name=__build))]
+pub struct Subscriber<S: Into<String>, I: Into<String>> {
+    destination: S,
+    id: I,
+    #[builder(default)]
+    headers: Vec<(String, String)>,
+}
+
+#[allow(non_camel_case_types)]
+impl<
+        S: Into<String>,
+        I: Into<String>,
+        __headers: ::typed_builder::Optional<Vec<(String, String)>>,
+    > SubscriberBuilder<S, I, ((S,), (I,), __headers)>
+{
+    pub fn subscribe(self) -> Message<ToServer> {
+        let subscriber = self.__build();
+        subscriber.subscribe()
+    }
+}
+
+impl<S: Into<String>, I: Into<String>> Subscriber<S, I> {
+    pub fn subscribe(self) -> Message<ToServer> {
+        let mut msg: Message<ToServer> = ToServer::Subscribe {
+            destination: self.destination.into(),
+            id: self.id.into(),
+            ack: None,
+        }
+        .into();
+        msg.extra_headers = self
+            .headers
+            .iter()
+            .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+            .collect();
+        msg
+    }
+}
+
 /// Convenience function to build a Subscribe message
 pub fn subscribe(dest: impl Into<String>, id: impl Into<String>) -> Message<ToServer> {
-    ToServer::Subscribe {
-        destination: dest.into(),
-        id: id.into(),
-        ack: None,
-    }
-    .into()
+    Subscriber::builder().destination(dest).id(id).subscribe()
 }
 
 pub struct ClientCodec;
