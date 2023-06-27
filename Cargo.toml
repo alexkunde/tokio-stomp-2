@@ -1,19 +1,19 @@
 [package]
 name = "tokio-stomp-2"
-version = "0.1.2"
+version = "0.2.0"
 description = "Unofficial successor to Asynchronous streaming STOMP client"
-authors = ["Jens Walter <jens@apimeister.com>, Alexander Kunde <alexander.kunde@hamburgsud.com>"]
+authors = ["Jens Walter <jens@apimeister.com>, Alexander Kunde <a.kunde@outlook.com>"]
 original-authors = ["Alex Whitney <adwhit@fastmail.com>"]
-repository = "http://github.com/schoki040/tokio-stomp-2"
-homepage = "http://github.com/schoki040/tokio-stomp-2"
+repository = "http://github.com/alexkunde/tokio-stomp-2"
+homepage = "http://github.com/alexkunde/tokio-stomp-2"
 keywords = ["stomp", "tokio", "streaming"]
 license = "MIT"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-bytes = "1"
-custom_debug = "0.5"
+bytes = "1.1.0"
+custom_debug_derive = "0.4.0"
 anyhow = "1.0"
 futures = "0.3"
 tokio = { version = "1", features = ["net"] }
@@ -21,4 +21,4 @@ tokio-util = { version = "0.7", features = ["codec"] }
 nom = "4"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }

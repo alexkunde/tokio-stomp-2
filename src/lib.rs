@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate nom;
 
-use custom_debug::Debug;
+use custom_debug_derive::CustomDebug;
 use frame::Frame;
 
 pub mod client;
@@ -30,7 +30,7 @@ fn pretty_bytes(b: &Option<Vec<u8>>, f: &mut std::fmt::Formatter) -> std::fmt::R
 
 /// A STOMP message sent from the server
 /// See the [Spec](https://stomp.github.io/stomp-specification-1.2.html) for more information
-#[derive(Debug, Clone)]
+#[derive(CustomDebug, Clone)]
 pub enum FromServer {
     #[doc(hidden)] // The user shouldn't need to know about this one
     Connected {
@@ -66,7 +66,7 @@ impl Message<FromServer> {
     // }
 
     // TODO make this undead
-    fn from_frame<'a>(frame: Frame<'a>) -> Result<Message<FromServer>> {
+    fn from_frame(frame: Frame) -> Result<Message<FromServer>> {
         frame.to_server_msg()
     }
 }
@@ -129,12 +129,11 @@ pub enum AckMode {
 }
 
 impl Message<ToServer> {
-    fn to_frame<'a>(&'a self) -> Frame<'a> {
+    fn to_frame(&self) -> Frame {
         self.content.to_frame()
     }
-
     #[allow(dead_code)]
-    fn from_frame<'a>(frame: Frame<'a>) -> Result<Message<ToServer>> {
+    fn from_frame(frame: Frame) -> Result<Message<ToServer>> {
         frame.to_client_msg()
     }
 }
