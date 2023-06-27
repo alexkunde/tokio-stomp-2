@@ -3,35 +3,6 @@ on:
   workflow_dispatch:
   pull_request:
 jobs:
-  test:
-    name: coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: 'true'
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            /usr/local/cargo
-            target/
-          key: cov-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy
-      - name: tarpaulin
-        run: cargo install cargo-tarpaulin
-      - name: Generate code coverage
-        run: |
-          cargo tarpaulin > result.log
-          cat result.log
-          cat result.log | grep coverage >> $GITHUB_STEP_SUMMARY
   build:
     permissions: write-all
     runs-on: ubuntu-latest
@@ -50,23 +21,15 @@ jobs:
           /usr/local/cargo
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        components: clippy
+    - name: Install Rust
+      run: rustup update stable
     - name: Run rustfmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      run: cargo fmt --all -- --check
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
+    - uses: taiki-e/install-action@nextest
     - name: Cargo Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: -q
+      run: cargo nextest run
     - name: merge
       if: github.event_name == 'pull_request'
       run: |
