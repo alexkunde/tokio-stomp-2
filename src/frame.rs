@@ -42,7 +42,6 @@ impl<'a> Frame<'a> {
                 b => buffer.put_u8(b),
             }
         }
-
         let requires = self.command.len()
             + self.body.map(|b| b.len() + 20).unwrap_or(0)
             + self
@@ -67,7 +66,7 @@ impl<'a> Frame<'a> {
         });
         if let Some(body) = self.body {
             //for Text Message in ActiveMQ
-            //buffer.put_slice(&get_content_length_header(&body));
+            buffer.put_slice(&get_content_length_header(&body));
             buffer.put_u8(b'\n');
             buffer.put_slice(body);
         } else {
@@ -342,7 +341,7 @@ impl<'a> Frame<'a> {
 fn opt_str_to_bytes<'a>(s: &'a Option<String>) -> Option<Cow<'a, [u8]>> {
     s.as_ref().map(|v| Cow::Borrowed(v.as_bytes()))
 }
-#[allow(dead_code)]
+
 fn get_content_length_header(body: &[u8]) -> Vec<u8> {
     format!("content-length:{}\n", body.len()).into()
 }
@@ -372,19 +371,17 @@ impl ToServer {
                     (b"accept-version", Some(Borrowed(accept_version.as_bytes()))),
                     (b"host", Some(Borrowed(host.as_bytes()))),
                     (b"login", sb(login)),
-                    (b"passcode", sb(passcode)),
                     (
                         b"heart-beat",
                         heartbeat.map(|(v1, v2)| Owned(format!("{},{}", v1, v2).into())),
                     ),
+                    (b"passcode", sb(passcode)),
                 ],
                 None,
             ),
-
             Disconnect { ref receipt } => {
-                Frame::new(b"DISCONNECT", &[(b"receipt", sb(receipt))], None)
+                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None)
             }
-
             Subscribe {
                 ref destination,
                 ref id,
@@ -405,13 +402,11 @@ impl ToServer {
                 ],
                 None,
             ),
-
             Unsubscribe { ref id } => Frame::new(
                 b"UNSUBSCRIBE",
                 &[(b"id", Some(Borrowed(id.as_bytes())))],
                 None,
             ),
-
             Send {
                 ref destination,
                 ref transaction,
@@ -427,7 +422,6 @@ impl ToServer {
                 }
                 Frame::new(b"SEND", &hdr, body.as_ref().map(|v| v.as_ref()))
             }
-
             Ack {
                 ref id,
                 ref transaction,
@@ -439,7 +433,6 @@ impl ToServer {
                 ],
                 None,
             ),
-
             Nack {
                 ref id,
                 ref transaction,
@@ -451,19 +444,16 @@ impl ToServer {
                 ],
                 None,
             ),
-
             Begin { ref transaction } => Frame::new(
                 b"BEGIN",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
                 None,
             ),
-
             Commit { ref transaction } => Frame::new(
                 b"COMMIT",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
                 None,
             ),
-
             Abort { ref transaction } => Frame::new(
                 b"ABORT",
                 &[(b"transaction", Some(Borrowed(transaction.as_bytes())))],
@@ -482,7 +472,9 @@ mod tests {
         let data = b"CONNECT
 accept-version:1.2
 host:datafeeds.here.co.uk
-login:user\npasscode:password\n\n\x00"
+login:user
+heart-beat:6,7
+passcode:password\n\n\x00"
             .to_vec();
         let (_, frame) = parse_frame(&data).unwrap();
         assert_eq!(frame.command, b"CONNECT");
@@ -490,6 +482,7 @@ login:user\npasscode:password\n\n\x00"
             (&b"accept-version"[..], &b"1.2"[..]),
             (b"host", b"datafeeds.here.co.uk"),
             (b"login", b"user"),
+            (b"heart-beat", b"6,7"),
             (b"passcode", b"password"),
         ];
         let fh: Vec<_> = frame.headers.iter().map(|&(k, ref v)| (k, &**v)).collect();
