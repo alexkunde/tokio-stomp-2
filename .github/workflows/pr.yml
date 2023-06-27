@@ -31,7 +31,7 @@ jobs:
     - name: Cargo Test
       run: cargo nextest run
     - name: merge
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
       run: |
         gh pr merge --merge $GITHUB_HEAD_REF
       env:
