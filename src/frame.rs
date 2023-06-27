@@ -5,6 +5,8 @@ use std::borrow::Cow;
 
 use crate::{AckMode, FromServer, Message, Result, ToServer};
 
+type HeaderTuple<'a> = (&'a [u8], Option<Cow<'a, [u8]>>);
+
 #[derive(Debug)]
 pub(crate) struct Frame<'a> {
     command: &'a [u8],
@@ -17,13 +19,13 @@ pub(crate) struct Frame<'a> {
 impl<'a> Frame<'a> {
     pub(crate) fn new(
         command: &'a [u8],
-        headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
+        headers: &[HeaderTuple<'a>],
         body: Option<&'a [u8]>,
     ) -> Frame<'a> {
         let headers = headers
             .iter()
             // filter out headers with None value
-            .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
+            .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, i.clone())))
             .collect();
         Frame {
             command,
@@ -47,7 +49,7 @@ impl<'a> Frame<'a> {
             + self
                 .headers
                 .iter()
-                .fold(0, |acc, &(ref k, ref v)| acc + k.len() + v.len())
+                .fold(0, |acc, (k, v)| acc + k.len() + v.len())
             + 30;
         if buffer.remaining_mut() < requires {
             buffer.reserve(requires);
@@ -66,7 +68,7 @@ impl<'a> Frame<'a> {
         });
         if let Some(body) = self.body {
             //for Text Message in ActiveMQ
-            buffer.put_slice(&get_content_length_header(&body));
+            buffer.put_slice(&get_content_length_header(body));
             buffer.put_u8(b'\n');
             buffer.put_slice(body);
         } else {
@@ -96,7 +98,7 @@ named!(
 fn get_content_length(headers: &[(&[u8], Cow<[u8]>)]) -> Option<u32> {
     for h in headers {
         if h.0 == b"content-length" {
-            return std::str::from_utf8(&*h.1)
+            return std::str::from_utf8(&h.1)
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok());
         }
@@ -119,7 +121,7 @@ named!(
             >> command: map!(take_until_and_consume!("\n"), strip_cr)
             >> headers: many0!(parse_header)
             >> eol
-            >> body: switch!(value!(get_content_length(&*headers)),
+            >> body: switch!(value!(get_content_length(&headers)),
                 Some(v) => map!(take!(v), Some) |
                 None => map!(take_until!("\x00"), is_empty_slice)
             )
@@ -144,7 +146,7 @@ fn strip_cr(buf: &[u8]) -> &[u8] {
 fn fetch_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> Option<String> {
     let kk = key.as_bytes();
     for &(k, ref v) in headers {
-        if &*k == kk {
+        if k == kk {
             return String::from_utf8(v.to_vec()).ok();
         }
     }
@@ -217,7 +219,7 @@ impl<'a> Frame<'a> {
                 Subscribe {
                     destination: eh(h, "destination")?,
                     id: eh(h, "id")?,
-                    ack: match fh(h, "ack").as_ref().map(|s| s.as_str()) {
+                    ack: match fh(h, "ack").as_deref() {
                         Some("auto") => Some(AckMode::Auto),
                         Some("client") => Some(AckMode::Client),
                         Some("client-individual") => Some(AckMode::ClientIndividual),
@@ -268,7 +270,7 @@ impl<'a> Frame<'a> {
             .iter()
             .filter_map(|&(k, ref v)| {
                 if !expect_keys.contains(&k) {
-                    Some((k.to_vec(), (&*v).to_vec()))
+                    Some((k.to_vec(), (v).to_vec()))
                 } else {
                     None
                 }
@@ -325,7 +327,7 @@ impl<'a> Frame<'a> {
             .iter()
             .filter_map(|&(k, ref v)| {
                 if !expect_keys.contains(&k) {
-                    Some((k.to_vec(), (&*v).to_vec()))
+                    Some((k.to_vec(), (v).to_vec()))
                 } else {
                     None
                 }
@@ -338,7 +340,7 @@ impl<'a> Frame<'a> {
     }
 }
 
-fn opt_str_to_bytes<'a>(s: &'a Option<String>) -> Option<Cow<'a, [u8]>> {
+fn opt_str_to_bytes(s: &Option<String>) -> Option<Cow<'_, [u8]>> {
     s.as_ref().map(|v| Cow::Borrowed(v.as_bytes()))
 }
 
@@ -354,7 +356,7 @@ fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
 }
 
 impl ToServer {
-    pub(crate) fn to_frame<'a>(&'a self) -> Frame<'a> {
+    pub(crate) fn to_frame(&self) -> Frame {
         use self::opt_str_to_bytes as sb;
         use Cow::*;
         use ToServer::*;
@@ -380,7 +382,7 @@ impl ToServer {
                 None,
             ),
             Disconnect { ref receipt } => {
-                Frame::new(b"DISCONNECT", &[(b"receipt", sb(&receipt))], None)
+                Frame::new(b"DISCONNECT", &[(b"receipt", sb(receipt))], None)
             }
             Subscribe {
                 ref destination,
@@ -413,7 +415,7 @@ impl ToServer {
                 ref headers,
                 ref body,
             } => {
-                let mut hdr: Vec<(&[u8], Option<Cow<[u8]>>)> = vec![
+                let mut hdr: Vec<HeaderTuple> = vec![
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", sb(transaction)),
                 ];

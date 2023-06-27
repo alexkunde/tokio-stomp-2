@@ -73,7 +73,7 @@ impl Decoder for ClientCodec {
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
-        let (item, offset) = match frame::parse_frame(&src) {
+        let (item, offset) = match frame::parse_frame(src) {
             Ok((remain, frame)) => (
                 Message::<FromServer>::from_frame(frame),
                 remain.as_ptr() as usize - src.as_ptr() as usize,
@@ -82,7 +82,7 @@ impl Decoder for ClientCodec {
             Err(e) => bail!("Parse failed: {:?}", e),
         };
         src.advance(offset);
-        item.map(|v| Some(v))
+        item.map(Some)
     }
 }
 
