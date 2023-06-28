@@ -792,7 +792,7 @@ receipt:77
     }
 
     fn logging_nom(frame: &Frame) {
-        println!("In Frame:");
+        println!("Frame Struct:");
         println!("command: {:?}", std::str::from_utf8(frame.command));
         println!("Headers:");
         for (k, v) in &frame.headers {
