@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use crate::{AckMode, FromServer, Message, Result, ToServer};
 
 type HeaderTuple<'a> = (&'a [u8], Option<Cow<'a, [u8]>>);
+type SplitHeaderTuple<'a> = (&'a [u8], &'a [u8], &'a [u8], &'a [u8]);
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Frame<'a> {
@@ -94,7 +95,7 @@ fn nom7_eol(i: &[u8]) -> IResult<&[u8], &[u8]> {
     line_ending(i)
 }
 
-fn nom7_split_header(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8], &[u8], &[u8])> {
+fn nom7_split_header(i: &[u8]) -> IResult<&[u8], SplitHeaderTuple> {
     tuple((is_a("\r\n"), is_not(":"), take(1usize), is_not("\r\n"))).parse(i)
 }
 
@@ -120,7 +121,7 @@ pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
     let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
         .clone()
         .into_iter()
-        .map(|(_, k, _, v)| ((k, Cow::Borrowed(v))))
+        .map(|(_, k, _, v)| (k, Cow::Borrowed(v)))
         .collect();
 
     println!("Headers:");
@@ -128,20 +129,17 @@ pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
         println!(
             "  {:?}:{:?}",
             std::str::from_utf8(k),
-            std::str::from_utf8(&v)
+            std::str::from_utf8(v)
         )
     }
 
     let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
-        Some(index) => match p_headers.get(index) {
-            Some((_, b)) => Some(
-                std::str::from_utf8(b.as_ref())
-                    .unwrap()
-                    .parse::<usize>()
-                    .unwrap(),
-            ),
-            None => None,
-        },
+        Some(index) => p_headers.get(index).map(|(_, b)| {
+            std::str::from_utf8(b.as_ref())
+                .unwrap()
+                .parse::<usize>()
+                .unwrap()
+        }),
         None => None,
     };
 
