@@ -19,7 +19,7 @@ async fn client(listens: &str, sends: &str, msg: &[u8]) -> Result<(), anyhow::Er
             ToServer::Send {
                 destination: sends.into(),
                 transaction: None,
-                headers: vec![],
+                headers: None,
                 body: Some(msg.to_vec()),
             }
             .into(),

@@ -66,13 +66,9 @@ impl<'a> Frame<'a> {
             }
             buffer.put_u8(b'\n');
         });
+        buffer.put_u8(b'\n');
         if let Some(body) = self.body {
-            //for Text Message in ActiveMQ
-            buffer.put_slice(&get_content_length_header(body));
-            buffer.put_u8(b'\n');
             buffer.put_slice(body);
-        } else {
-            buffer.put_u8(b'\n');
         }
         buffer.put_u8(b'\x00');
     }
@@ -165,6 +161,27 @@ fn all_headers<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)]) -> Vec<(String, Str
     res
 }
 
+fn optional_headers<'a>(
+    headers: &'a [(&'a [u8], Cow<'a, [u8]>)],
+    expected_keys: &[&[u8]],
+) -> Option<Vec<(String, String)>> {
+    let res: Vec<(String, String)> = headers
+        .iter()
+        .filter(|(k, _)| !expected_keys.contains(k))
+        .map(|(k, v)| {
+            (
+                String::from_utf8(k.to_vec()).unwrap(),
+                String::from_utf8(v.to_vec()).unwrap(),
+            )
+        })
+        .collect();
+    if res.is_empty() {
+        None
+    } else {
+        Some(res)
+    }
+}
+
 fn expect_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> Result<String> {
     fetch_header(headers, key).ok_or_else(|| anyhow!("Expected header '{}' missing", key))
 }
@@ -210,7 +227,7 @@ impl<'a> Frame<'a> {
                 Send {
                     destination: eh(h, "destination")?,
                     transaction: fh(h, "transaction"),
-                    headers: vec![],
+                    headers: optional_headers(h, expect_keys),
                     body: self.body.map(|v| v.to_vec()),
                 }
             }
@@ -344,10 +361,6 @@ fn opt_str_to_bytes(s: &Option<String>) -> Option<Cow<'_, [u8]>> {
     s.as_ref().map(|v| Cow::Borrowed(v.as_bytes()))
 }
 
-fn get_content_length_header(body: &[u8]) -> Vec<u8> {
-    format!("content-length:{}\n", body.len()).into()
-}
-
 fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
     let mut split = hb.splitn(2, ',');
     let left = split.next().ok_or_else(|| anyhow!("Bad heartbeat"))?;
@@ -419,8 +432,10 @@ impl ToServer {
                     (b"destination", Some(Borrowed(destination.as_bytes()))),
                     (b"id", sb(transaction)),
                 ];
-                for (key, val) in headers {
-                    hdr.push((key.as_bytes(), Some(Borrowed(val.as_bytes()))));
+                if headers.is_some() {
+                    for (key, val) in headers.as_ref().unwrap() {
+                        hdr.push((key.as_bytes(), Some(Borrowed(val.as_bytes()))));
+                    }
                 }
                 Frame::new(b"SEND", &hdr, body.as_ref().map(|v| v.as_ref()))
             }
@@ -469,7 +484,6 @@ impl ToServer {
 mod tests {
 
     use super::*;
-    use crate::nom::AsBytes;
 
     /// For all Frames Client -> Server
     /// https://stomp.github.io/stomp-specification-1.2.html#Client_Frames
@@ -583,9 +597,6 @@ passcode:password\n\n\x00";
     /// note: first \x00 will terminate body without content-length header!
     /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
     fn parse_and_serialize_client_send_message_minimum() {
-        // Fails due to content-length header being automatically set
-        // needs a fix/will be breaking change
-
         let mut data = b"SEND\ndestination:/queue/a\n\n".to_vec();
         let body = b"this body contains no nulls \n and \n newlines OK?";
         data.extend_from_slice(body);
@@ -603,9 +614,6 @@ passcode:password\n\n\x00";
     /// note: additional \x00 are only allowed with content-length header!
     /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
     fn parse_and_serialize_client_send_message_recommended() {
-        // Fails due to not all headers being parsed
-        // Needs a fix/will be a breaking change
-
         let mut data =
             b"SEND\ndestination:/queue/a\ncontent-type:text/html;charset=utf-8\n".to_vec();
         let body = "this body contains \x00 nulls \n and \r\n newlines \x00 OK?";
