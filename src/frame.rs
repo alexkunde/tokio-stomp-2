@@ -17,7 +17,6 @@ pub(crate) struct Frame<'a> {
 }
 
 impl<'a> Frame<'a> {
-
     pub(crate) fn new(
         command: &'a [u8],
         headers: &[HeaderTuple<'a>],
@@ -68,7 +67,9 @@ impl<'a> Frame<'a> {
             buffer.put_u8(b'\n');
         });
         buffer.put_u8(b'\n');
-        if let Some(body) = self.body { buffer.put_slice(body); }
+        if let Some(body) = self.body {
+            buffer.put_slice(body);
+        }
         buffer.put_u8(b'\x00');
     }
 }
