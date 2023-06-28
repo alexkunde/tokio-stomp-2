@@ -7,7 +7,7 @@ use crate::{AckMode, FromServer, Message, Result, ToServer};
 
 type HeaderTuple<'a> = (&'a [u8], Option<Cow<'a, [u8]>>);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Frame<'a> {
     command: &'a [u8],
     // TODO use ArrayVec to keep headers on the stack
@@ -628,5 +628,166 @@ passcode:password\n\n\x00";
 
         assert_eq!(frame.command, b"SEND");
         parse_and_serialize_to_server(&data, frame, headers_expect, Some(body.as_bytes()));
+    }
+
+    // nom7
+    use nom7::branch::alt;
+    use nom7::bytes::complete::tag;
+    use nom7::bytes::complete::take;
+    use nom7::bytes::complete::take_while;
+    use nom7::bytes::complete::{is_a, is_not};
+    use nom7::character::is_alphanumeric;
+    use nom7::character::streaming::line_ending;
+    use nom7::error::Error;
+    use nom7::multi::many_till;
+    use nom7::sequence::pair;
+    use nom7::sequence::tuple;
+    use nom7::sequence::Tuple;
+    use nom7::IResult;
+    use nom7::Parser;
+
+    fn nom7_eol(i: &[u8]) -> IResult<&[u8], &[u8]> {
+        line_ending(i)
+    }
+
+    fn nom7_split_header(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8], &[u8], &[u8])> {
+        tuple((is_a("\r\n"), is_not(":"), take(1usize), is_not("\r\n"))).parse(i)
+    }
+
+    fn nom7_parse_frame(input: &[u8]) -> Frame {
+        // first word until new line
+        let command = take_while(is_alphanumeric);
+        // double new line -> end of headers
+        let end_of_headers = pair(nom7_eol, nom7_eol);
+        // \x00 -> end of file
+        let end_of_file = pair(nom7_eol, tag("\x00"));
+        // parse all headers into tuple
+        let all_headers = many_till(nom7_split_header, alt((end_of_headers, end_of_file)));
+
+        let (rest, (parsed_command, (headers_tuple, (_, _)))) =
+            (&command, all_headers).parse(input).unwrap();
+
+        println!("xx.0.: {:?}", std::str::from_utf8(parsed_command).unwrap());
+
+        let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
+            .clone()
+            .into_iter()
+            .map(|(_, k, _, v)| ((k, Cow::Borrowed(v))))
+            .collect();
+
+        let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
+            Some(index) => match p_headers.get(index) {
+                Some((_, b)) => Some(
+                    std::str::from_utf8(b.as_ref())
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap(),
+                ),
+                None => None,
+            },
+            None => None,
+        };
+
+        // exit on first \x00 unless body_length is set
+        let body = match body_length {
+            Some(l) => take::<_, _, Error<_>>(l)(rest),
+            None => is_not("\x00")(rest),
+        };
+
+        let parsed_body = match body {
+            Ok((_rest, bd)) => Some(bd),
+            Err(_) => None,
+        };
+
+        println!(
+            "xx.0 - body: {:?}",
+            std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
+        );
+
+        Frame {
+            command: parsed_command,
+            headers: p_headers,
+            body: parsed_body,
+        }
+    }
+
+    #[test]
+    fn test_nom7_normal_return() {
+        let data = b"SEND
+destination:datafeeds.here.co.uk\r\nmessage-id:12345
+content-length:14
+subscription:some-id
+
+\n\nhallo\n\x00 Alex\x00";
+        let nom7_frame = nom7_parse_frame(data);
+        logging_nom(&nom7_frame);
+        let (_, nom4_frame) = parse_frame(data).unwrap();
+        logging_nom(&nom4_frame);
+        assert_eq!(nom4_frame, nom7_frame);
+    }
+
+    #[test]
+    fn test_nom7_early_body_return() {
+        let data = b"SEND
+destination:datafeeds.here.co.uk\r\nmessage-id:12345
+subscription:some-id
+
+\n\nhallo\n\x00 Alex\x00";
+        let nom7_frame = nom7_parse_frame(data);
+        logging_nom(&nom7_frame);
+        let (_, nom4_frame) = parse_frame(data).unwrap();
+        logging_nom(&nom4_frame);
+        assert_eq!(nom4_frame, nom7_frame);
+    }
+
+    #[test]
+    fn test_nom7_escapes() {
+        let data = b"SEND
+destination:data\\n\\r\\c\\feeds.here.co.uk\r\nmessage-id:12345
+subscription:some-id
+
+\n\nhallo\n\x00 Alex\x00";
+        let nom7_frame = nom7_parse_frame(data);
+        logging_nom(&nom7_frame);
+        let (_, nom4_frame) = parse_frame(data).unwrap();
+        logging_nom(&nom4_frame);
+        assert_eq!(nom4_frame, nom7_frame);
+    }
+
+    #[test]
+    fn test_nom7_empty() {
+        let data = b"SEND
+
+\n\nhallo\n\x00 Alex
+\x00";
+        let nom7_frame = nom7_parse_frame(data);
+        logging_nom(&nom7_frame);
+        let (_, nom4_frame) = parse_frame(data).unwrap();
+        logging_nom(&nom4_frame);
+        assert_eq!(nom4_frame, nom7_frame);
+    }
+
+    #[test]
+    fn test_nom7_small_fails_nom_4() {
+        let data = b"DISCONNECT
+receipt:77
+\x00";
+        let nom7_frame = nom7_parse_frame(data);
+        logging_nom(&nom7_frame);
+        let (_, nom4_frame) = parse_frame(data).unwrap();
+        logging_nom(&nom4_frame);
+        assert_eq!(nom4_frame, nom7_frame);
+    }
+
+    fn logging_nom(frame: &Frame) {
+        println!("cmd: {:?}", std::str::from_utf8(frame.command));
+        for (k, v) in &frame.headers {
+            println!(
+                "hd: {:?}:{:?}",
+                std::str::from_utf8(k),
+                std::str::from_utf8(&v)
+            );
+        }
+        println!("bd: {:?}", std::str::from_utf8(frame.body.unwrap_or(b"")));
     }
 }
