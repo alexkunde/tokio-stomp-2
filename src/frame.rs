@@ -498,9 +498,15 @@ mod tests {
         }
 
         println!("Provided Body: ");
-        println!("{}", std::str::from_utf8(frame.body.unwrap_or(b"")).unwrap());
+        println!(
+            "{}",
+            std::str::from_utf8(frame.body.unwrap_or(b"")).unwrap()
+        );
         println!("Expected Body: ");
-        println!("{}", std::str::from_utf8(body_expect.unwrap_or(b"")).unwrap());
+        println!(
+            "{}",
+            std::str::from_utf8(body_expect.unwrap_or(b"")).unwrap()
+        );
         assert_eq!(fh, headers_expect, "headers dont match");
         assert_eq!(frame.body, body_expect, "body doesnt match");
         let stomp = frame.to_client_msg().unwrap();
@@ -577,7 +583,6 @@ passcode:password\n\n\x00";
     /// note: first \x00 will terminate body without content-length header!
     /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
     fn parse_and_serialize_client_send_message_minimum() {
-
         // Fails due to content-length header being automatically set
         // needs a fix/will be breaking change
 
@@ -598,12 +603,11 @@ passcode:password\n\n\x00";
     /// note: additional \x00 are only allowed with content-length header!
     /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
     fn parse_and_serialize_client_send_message_recommended() {
-
         // Fails due to not all headers being parsed
         // Needs a fix/will be a breaking change
 
-        let mut data = b"SEND\ndestination:/queue/a\ncontent-type:text/html;charset=utf-8\n"
-        .to_vec();
+        let mut data =
+            b"SEND\ndestination:/queue/a\ncontent-type:text/html;charset=utf-8\n".to_vec();
         let body = "this body contains \x00 nulls \n and \r\n newlines \x00 OK?";
         let rest = format!("content-length:{}\n\n{}\x00", body.len(), body);
         data.extend_from_slice(rest.as_bytes());
