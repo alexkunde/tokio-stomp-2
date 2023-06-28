@@ -30,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
             ToServer::Send {
                 destination: "rusty".into(),
                 transaction: None,
-                headers: vec![],
+                headers: None,
                 body: Some(b"Hello there rustaceans!".to_vec()),
             }
             .into(),

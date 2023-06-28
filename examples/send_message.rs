@@ -16,7 +16,7 @@ async fn main() -> Result<(), std::io::Error> {
         ToServer::Send {
             destination: "queue.test".into(),
             transaction: None,
-            headers: vec![],
+            headers: None,
             body: Some(b"Hello there rustaceans!".to_vec()),
         }
         .into(),
