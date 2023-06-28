@@ -655,6 +655,7 @@ passcode:password\n\n\x00";
     }
 
     fn nom7_parse_frame(input: &[u8]) -> Frame {
+        println!("Frame Parser:");
         // first word until new line
         let command = take_while(is_alphanumeric);
         // double new line -> end of headers
@@ -667,13 +668,25 @@ passcode:password\n\n\x00";
         let (rest, (parsed_command, (headers_tuple, (_, _)))) =
             (&command, all_headers).parse(input).unwrap();
 
-        println!("xx.0.: {:?}", std::str::from_utf8(parsed_command).unwrap());
+        println!(
+            "command: {:?}",
+            std::str::from_utf8(parsed_command).unwrap()
+        );
 
         let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
             .clone()
             .into_iter()
             .map(|(_, k, _, v)| ((k, Cow::Borrowed(v))))
             .collect();
+
+            println!("Headers:");
+            for (k, v) in &p_headers {
+                println!(
+                    "  {:?}:{:?}",
+                    std::str::from_utf8(k),
+                    std::str::from_utf8(&v)
+                );
+            }
 
         let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
             Some(index) => match p_headers.get(index) {
@@ -698,9 +711,8 @@ passcode:password\n\n\x00";
             Ok((_rest, bd)) => Some(bd),
             Err(_) => None,
         };
-
         println!(
-            "xx.0 - body: {:?}",
+            "Body: {:?}",
             std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
         );
 
@@ -780,14 +792,17 @@ receipt:77
     }
 
     fn logging_nom(frame: &Frame) {
-        println!("cmd: {:?}", std::str::from_utf8(frame.command));
+        println!("In Frame:");
+        println!("command: {:?}", std::str::from_utf8(frame.command));
+        println!("Headers:");
         for (k, v) in &frame.headers {
             println!(
-                "hd: {:?}:{:?}",
+                "  {:?}:{:?}",
                 std::str::from_utf8(k),
                 std::str::from_utf8(&v)
             );
         }
-        println!("bd: {:?}", std::str::from_utf8(frame.body.unwrap_or(b"")));
+        println!("Body:");
+        println!("{:?}", std::str::from_utf8(frame.body.unwrap_or(b"")));
     }
 }
