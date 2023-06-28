@@ -1,6 +1,6 @@
 use std::net::ToSocketAddrs;
 
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 use futures::prelude::*;
 use futures::sink::SinkExt;
 
@@ -11,7 +11,7 @@ pub type ClientTransport = Framed<TcpStream, ClientCodec>;
 
 use crate::frame;
 use crate::{FromServer, Message, Result, ToServer};
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 
 /// Connect to a STOMP server via TCP, including the connection handshake.
 /// If successful, returns a tuple of a message stream and a sender,
@@ -73,16 +73,19 @@ impl Decoder for ClientCodec {
     type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>> {
-        let (item, offset) = match frame::parse_frame(src) {
-            Ok((remain, frame)) => (
-                Message::<FromServer>::from_frame(frame),
-                remain.as_ptr() as usize - src.as_ptr() as usize,
-            ),
-            Err(nom::Err::Incomplete(_)) => return Ok(None),
-            Err(e) => bail!("Parse failed: {:?}", e),
-        };
-        src.advance(offset);
-        item.map(Some)
+        let f = frame::nom7_parse_frame(src);
+        let ff = Message::<FromServer>::from_frame(f);
+        ff.map(Some)
+        // let (item, offset) = match frame::parse_frame(src) {
+        //     Ok((remain, frame)) => (
+        //         Message::<FromServer>::from_frame(frame),
+        //         remain.as_ptr() as usize - src.as_ptr() as usize,
+        //     ),
+        //     Err(nom::Err::Incomplete(_)) => return Ok(None),
+        //     Err(e) => bail!("Parse failed: {:?}", e),
+        // };
+        // src.advance(offset);
+        // item.map(Some)
     }
 }
 

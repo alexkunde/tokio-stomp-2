@@ -74,68 +74,96 @@ impl<'a> Frame<'a> {
     }
 }
 
-// Nom definitions
+// nom7
+use nom7::branch::alt;
+use nom7::bytes::complete::tag;
+use nom7::bytes::complete::take;
+use nom7::bytes::complete::take_while;
+use nom7::bytes::complete::{is_a, is_not};
+use nom7::character::is_alphanumeric;
+use nom7::character::streaming::line_ending;
+use nom7::error::Error;
+use nom7::multi::many_till;
+use nom7::sequence::pair;
+use nom7::sequence::tuple;
+use nom7::sequence::Tuple;
+use nom7::IResult;
+use nom7::Parser;
 
-named!(eol, preceded!(opt!(tag!("\r")), tag!("\n")));
+fn nom7_eol(i: &[u8]) -> IResult<&[u8], &[u8]> {
+    line_ending(i)
+}
 
-named!(
-    parse_header<(&[u8], Cow<[u8]>)>,
-    pair!(
-        take_until_either!(":\n"),
-        preceded!(
-            tag!(":"),
-            map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(
-                strip_cr(bytes)
-            ))
+fn nom7_split_header(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8], &[u8], &[u8])> {
+    tuple((is_a("\r\n"), is_not(":"), take(1usize), is_not("\r\n"))).parse(i)
+}
+
+pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
+    println!("Frame Parser:");
+    // first word until new line
+    let command = take_while(is_alphanumeric);
+    // double new line -> end of headers
+    let end_of_headers = pair(nom7_eol, nom7_eol);
+    // \x00 -> end of file
+    let end_of_file = pair(nom7_eol, tag("\x00"));
+    // parse all headers into tuple
+    let all_headers = many_till(nom7_split_header, alt((end_of_headers, end_of_file)));
+
+    let (rest, (parsed_command, (headers_tuple, (_, _)))) =
+        (&command, all_headers).parse(input).unwrap();
+
+    println!(
+        "command: {:?}",
+        std::str::from_utf8(parsed_command).unwrap()
+    );
+
+    let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
+        .clone()
+        .into_iter()
+        .map(|(_, k, _, v)| ((k, Cow::Borrowed(v))))
+        .collect();
+
+    println!("Headers:");
+    for (k, v) in &p_headers {
+        println!(
+            "  {:?}:{:?}",
+            std::str::from_utf8(k),
+            std::str::from_utf8(&v)
         )
-    )
-);
-
-fn get_content_length(headers: &[(&[u8], Cow<[u8]>)]) -> Option<u32> {
-    for h in headers {
-        if h.0 == b"content-length" {
-            return std::str::from_utf8(&h.1)
-                .ok()
-                .and_then(|v| v.parse::<u32>().ok());
-        }
     }
-    None
-}
 
-fn is_empty_slice(s: &[u8]) -> Option<&[u8]> {
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
-}
+    let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
+        Some(index) => match p_headers.get(index) {
+            Some((_, b)) => Some(
+                std::str::from_utf8(b.as_ref())
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap(),
+            ),
+            None => None,
+        },
+        None => None,
+    };
 
-named!(
-    pub(crate) parse_frame<Frame>,
-    do_parse!(
-        many0!(eol)
-            >> command: map!(take_until_and_consume!("\n"), strip_cr)
-            >> headers: many0!(parse_header)
-            >> eol
-            >> body: switch!(value!(get_content_length(&headers)),
-                Some(v) => map!(take!(v), Some) |
-                None => map!(take_until!("\x00"), is_empty_slice)
-            )
-            >> tag!("\x00")
-            >> many0!(complete!(eol))
-            >> (Frame {
-                command,
-                headers,
-                body,
-            })
-    )
-);
+    // exit on first \x00 unless body_length is set
+    let body = match body_length {
+        Some(l) => take::<_, _, Error<_>>(l)(rest),
+        None => is_not("\x00")(rest),
+    };
 
-fn strip_cr(buf: &[u8]) -> &[u8] {
-    if let Some(&b'\r') = buf.last() {
-        &buf[..buf.len() - 1]
-    } else {
-        buf
+    let parsed_body = match body {
+        Ok((_rest, bd)) => Some(bd),
+        Err(_) => None,
+    };
+    println!(
+        "Body: {:?}",
+        std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
+    );
+
+    Frame {
+        command: parsed_command,
+        headers: p_headers,
+        body: parsed_body,
     }
 }
 
@@ -543,7 +571,7 @@ login:user
 heart-beat:6,7
 passcode:password\n\n\x00"
             .to_vec();
-        let (_, frame) = parse_frame(&data).unwrap();
+        let frame = nom7_parse_frame(&data);
         let headers_expect: Vec<(&[u8], &[u8])> = vec![
             (&b"accept-version"[..], &b"1.2"[..]),
             (b"host", b"datafeeds.here.co.uk"),
@@ -566,7 +594,7 @@ accept-version:1.2
 host:datafeeds.here.co.uk
 login:user
 passcode:password\n\n\x00";
-        let (_, frame) = parse_frame(data).unwrap();
+        let frame = nom7_parse_frame(data);
         let headers_expect: Vec<(&[u8], &[u8])> = vec![
             (&b"accept-version"[..], &b"1.2"[..]),
             (b"host", b"datafeeds.here.co.uk"),
@@ -583,7 +611,7 @@ passcode:password\n\n\x00";
     /// https://stomp.github.io/stomp-specification-1.2.html#DISCONNECT
     fn parse_and_serialize_client_disconnect() {
         let data = b"DISCONNECT\nreceipt:77\n\n\x00";
-        let (_, frame) = parse_frame(data).unwrap();
+        let frame = nom7_parse_frame(data);
         let headers_expect: Vec<(&[u8], &[u8])> = vec![(b"receipt", b"77")];
 
         assert_eq!(frame.command, b"DISCONNECT");
@@ -601,7 +629,7 @@ passcode:password\n\n\x00";
         let body = b"this body contains no nulls \n and \n newlines OK?";
         data.extend_from_slice(body);
         data.extend_from_slice(b"\x00");
-        let (_, frame) = parse_frame(&data).unwrap();
+        let frame = nom7_parse_frame(&data);
         let headers_expect: Vec<(&[u8], &[u8])> = vec![(&b"destination"[..], &b"/queue/a"[..])];
         assert_eq!(frame.command, b"SEND");
         parse_and_serialize_to_server(&data, frame, headers_expect, Some(body));
@@ -619,7 +647,7 @@ passcode:password\n\n\x00";
         let body = "this body contains \x00 nulls \n and \r\n newlines \x00 OK?";
         let rest = format!("content-length:{}\n\n{}\x00", body.len(), body);
         data.extend_from_slice(rest.as_bytes());
-        let (_, frame) = parse_frame(&data).unwrap();
+        let frame = nom7_parse_frame(&data);
         let headers_expect: Vec<(&[u8], &[u8])> = vec![
             (&b"destination"[..], &b"/queue/a"[..]),
             (b"content-type", b"text/html;charset=utf-8"),
@@ -628,99 +656,6 @@ passcode:password\n\n\x00";
 
         assert_eq!(frame.command, b"SEND");
         parse_and_serialize_to_server(&data, frame, headers_expect, Some(body.as_bytes()));
-    }
-
-    // nom7
-    use nom7::branch::alt;
-    use nom7::bytes::complete::tag;
-    use nom7::bytes::complete::take;
-    use nom7::bytes::complete::take_while;
-    use nom7::bytes::complete::{is_a, is_not};
-    use nom7::character::is_alphanumeric;
-    use nom7::character::streaming::line_ending;
-    use nom7::error::Error;
-    use nom7::multi::many_till;
-    use nom7::sequence::pair;
-    use nom7::sequence::tuple;
-    use nom7::sequence::Tuple;
-    use nom7::IResult;
-    use nom7::Parser;
-
-    fn nom7_eol(i: &[u8]) -> IResult<&[u8], &[u8]> {
-        line_ending(i)
-    }
-
-    fn nom7_split_header(i: &[u8]) -> IResult<&[u8], (&[u8], &[u8], &[u8], &[u8])> {
-        tuple((is_a("\r\n"), is_not(":"), take(1usize), is_not("\r\n"))).parse(i)
-    }
-
-    fn nom7_parse_frame(input: &[u8]) -> Frame {
-        println!("Frame Parser:");
-        // first word until new line
-        let command = take_while(is_alphanumeric);
-        // double new line -> end of headers
-        let end_of_headers = pair(nom7_eol, nom7_eol);
-        // \x00 -> end of file
-        let end_of_file = pair(nom7_eol, tag("\x00"));
-        // parse all headers into tuple
-        let all_headers = many_till(nom7_split_header, alt((end_of_headers, end_of_file)));
-
-        let (rest, (parsed_command, (headers_tuple, (_, _)))) =
-            (&command, all_headers).parse(input).unwrap();
-
-        println!(
-            "command: {:?}",
-            std::str::from_utf8(parsed_command).unwrap()
-        );
-
-        let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
-            .clone()
-            .into_iter()
-            .map(|(_, k, _, v)| ((k, Cow::Borrowed(v))))
-            .collect();
-
-            println!("Headers:");
-            for (k, v) in &p_headers {
-                println!(
-                    "  {:?}:{:?}",
-                    std::str::from_utf8(k),
-                    std::str::from_utf8(&v)
-                );
-            }
-
-        let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
-            Some(index) => match p_headers.get(index) {
-                Some((_, b)) => Some(
-                    std::str::from_utf8(b.as_ref())
-                        .unwrap()
-                        .parse::<usize>()
-                        .unwrap(),
-                ),
-                None => None,
-            },
-            None => None,
-        };
-
-        // exit on first \x00 unless body_length is set
-        let body = match body_length {
-            Some(l) => take::<_, _, Error<_>>(l)(rest),
-            None => is_not("\x00")(rest),
-        };
-
-        let parsed_body = match body {
-            Ok((_rest, bd)) => Some(bd),
-            Err(_) => None,
-        };
-        println!(
-            "Body: {:?}",
-            std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
-        );
-
-        Frame {
-            command: parsed_command,
-            headers: p_headers,
-            body: parsed_body,
-        }
     }
 
     #[test]
@@ -733,9 +668,6 @@ subscription:some-id
 \n\nhallo\n\x00 Alex\x00";
         let nom7_frame = nom7_parse_frame(data);
         logging_nom(&nom7_frame);
-        let (_, nom4_frame) = parse_frame(data).unwrap();
-        logging_nom(&nom4_frame);
-        assert_eq!(nom4_frame, nom7_frame);
     }
 
     #[test]
@@ -747,9 +679,6 @@ subscription:some-id
 \n\nhallo\n\x00 Alex\x00";
         let nom7_frame = nom7_parse_frame(data);
         logging_nom(&nom7_frame);
-        let (_, nom4_frame) = parse_frame(data).unwrap();
-        logging_nom(&nom4_frame);
-        assert_eq!(nom4_frame, nom7_frame);
     }
 
     #[test]
@@ -761,9 +690,6 @@ subscription:some-id
 \n\nhallo\n\x00 Alex\x00";
         let nom7_frame = nom7_parse_frame(data);
         logging_nom(&nom7_frame);
-        let (_, nom4_frame) = parse_frame(data).unwrap();
-        logging_nom(&nom4_frame);
-        assert_eq!(nom4_frame, nom7_frame);
     }
 
     #[test]
@@ -774,9 +700,6 @@ subscription:some-id
 \x00";
         let nom7_frame = nom7_parse_frame(data);
         logging_nom(&nom7_frame);
-        let (_, nom4_frame) = parse_frame(data).unwrap();
-        logging_nom(&nom4_frame);
-        assert_eq!(nom4_frame, nom7_frame);
     }
 
     #[test]
@@ -786,9 +709,6 @@ receipt:77
 \x00";
         let nom7_frame = nom7_parse_frame(data);
         logging_nom(&nom7_frame);
-        let (_, nom4_frame) = parse_frame(data).unwrap();
-        logging_nom(&nom4_frame);
-        assert_eq!(nom4_frame, nom7_frame);
     }
 
     fn logging_nom(frame: &Frame) {
