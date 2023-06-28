@@ -467,10 +467,61 @@ impl ToServer {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+    use crate::nom::AsBytes;
+
+    /// For all Frames Client -> Server
+    /// https://stomp.github.io/stomp-specification-1.2.html#Client_Frames
+    fn parse_and_serialize_to_server(
+        data: &[u8],
+        frame: Frame<'_>,
+        headers_expect: Vec<(&[u8], &[u8])>,
+        body_expect: Option<&[u8]>,
+    ) {
+        let fh: Vec<(&[u8], &[u8])> = frame.headers.iter().map(|&(k, ref v)| (k, &**v)).collect();
+        println!("Provided Headers: ");
+        for f in &fh {
+            println!(
+                "  {}: {}",
+                std::str::from_utf8(f.0).unwrap(),
+                std::str::from_utf8(f.1).unwrap()
+            );
+        }
+        println!("Expected Headers: ");
+        for f in &headers_expect {
+            println!(
+                "  {}: {}",
+                std::str::from_utf8(f.0).unwrap(),
+                std::str::from_utf8(f.1).unwrap()
+            );
+        }
+
+        println!("Provided Body: ");
+        println!(
+            "{}",
+            std::str::from_utf8(frame.body.unwrap_or(b"")).unwrap()
+        );
+        println!("Expected Body: ");
+        println!(
+            "{}",
+            std::str::from_utf8(body_expect.unwrap_or(b"")).unwrap()
+        );
+        assert_eq!(fh, headers_expect, "headers dont match");
+        assert_eq!(frame.body, body_expect, "body doesnt match");
+        let stomp = frame.to_client_msg().unwrap();
+        let mut buffer = BytesMut::new();
+        stomp.to_frame().serialize(&mut buffer);
+        println!("left: {}", std::str::from_utf8(&buffer).unwrap());
+        println!("right: {}", std::str::from_utf8(&data).unwrap());
+        assert_eq!(&*buffer, &*data, "frame data doesnt match");
+    }
 
     #[test]
-    fn parse_and_serialize_connect() {
+    /// Testing:
+    /// https://stomp.github.io/stomp-specification-1.2.html#CONNECT
+    /// without heartbeat configured
+    fn parse_and_serialize_client_connect_with_heartbeat() {
         let data = b"CONNECT
 accept-version:1.2
 host:datafeeds.here.co.uk
@@ -479,7 +530,6 @@ heart-beat:6,7
 passcode:password\n\n\x00"
             .to_vec();
         let (_, frame) = parse_frame(&data).unwrap();
-        assert_eq!(frame.command, b"CONNECT");
         let headers_expect: Vec<(&[u8], &[u8])> = vec![
             (&b"accept-version"[..], &b"1.2"[..]),
             (b"host", b"datafeeds.here.co.uk"),
@@ -487,40 +537,88 @@ passcode:password\n\n\x00"
             (b"heart-beat", b"6,7"),
             (b"passcode", b"password"),
         ];
-        let fh: Vec<_> = frame.headers.iter().map(|&(k, ref v)| (k, &**v)).collect();
-        assert_eq!(fh, headers_expect);
-        assert_eq!(frame.body, None);
-        let stomp = frame.to_client_msg().unwrap();
-        let mut buffer = BytesMut::new();
-        stomp.to_frame().serialize(&mut buffer);
-        assert_eq!(&*buffer, &*data);
+
+        assert_eq!(frame.command, b"CONNECT");
+        parse_and_serialize_to_server(&data, frame, headers_expect, None);
     }
 
     #[test]
-    fn parse_and_serialize_message() {
-        let mut data = b"\nMESSAGE
-destination:datafeeds.here.co.uk
-message-id:12345
-subscription:some-id
-"
-        .to_vec();
+    /// Testing:
+    /// https://stomp.github.io/stomp-specification-1.2.html#CONNECT
+    /// with heartbeat configured
+    fn parse_and_serialize_client_connect_without_heartbeat() {
+        let data = b"CONNECT
+accept-version:1.2
+host:datafeeds.here.co.uk
+login:user
+passcode:password\n\n\x00";
+        let (_, frame) = parse_frame(data).unwrap();
+        let headers_expect: Vec<(&[u8], &[u8])> = vec![
+            (&b"accept-version"[..], &b"1.2"[..]),
+            (b"host", b"datafeeds.here.co.uk"),
+            (b"login", b"user"),
+            (b"passcode", b"password"),
+        ];
+
+        assert_eq!(frame.command, b"CONNECT");
+        parse_and_serialize_to_server(data, frame, headers_expect, None);
+    }
+
+    #[test]
+    /// Testing:
+    /// https://stomp.github.io/stomp-specification-1.2.html#DISCONNECT
+    fn parse_and_serialize_client_disconnect() {
+        let data = b"DISCONNECT\nreceipt:77\n\n\x00";
+        let (_, frame) = parse_frame(data).unwrap();
+        let headers_expect: Vec<(&[u8], &[u8])> = vec![(b"receipt", b"77")];
+
+        assert_eq!(frame.command, b"DISCONNECT");
+        parse_and_serialize_to_server(data, frame, headers_expect, None);
+    }
+
+    #[test]
+    /// Testing:
+    /// https://stomp.github.io/stomp-specification-1.2.html#SEND
+    /// minimum headers set without
+    /// note: first \x00 will terminate body without content-length header!
+    /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
+    fn parse_and_serialize_client_send_message_minimum() {
+        // Fails due to content-length header being automatically set
+        // needs a fix/will be breaking change
+
+        let mut data = b"SEND\ndestination:/queue/a\n\n".to_vec();
+        let body = b"this body contains no nulls \n and \n newlines OK?";
+        data.extend_from_slice(body);
+        data.extend_from_slice(b"\x00");
+        let (_, frame) = parse_frame(&data).unwrap();
+        let headers_expect: Vec<(&[u8], &[u8])> = vec![(&b"destination"[..], &b"/queue/a"[..])];
+        assert_eq!(frame.command, b"SEND");
+        parse_and_serialize_to_server(&data, frame, headers_expect, Some(body));
+    }
+
+    #[test]
+    /// Testing:
+    /// https://stomp.github.io/stomp-specification-1.2.html#SEND
+    /// recommended headers set
+    /// note: additional \x00 are only allowed with content-length header!
+    /// https://stomp.github.io/stomp-specification-1.2.html#Header_content-length
+    fn parse_and_serialize_client_send_message_recommended() {
+        // Fails due to not all headers being parsed
+        // Needs a fix/will be a breaking change
+
+        let mut data =
+            b"SEND\ndestination:/queue/a\ncontent-type:text/html;charset=utf-8\n".to_vec();
         let body = "this body contains \x00 nulls \n and \r\n newlines \x00 OK?";
         let rest = format!("content-length:{}\n\n{}\x00", body.len(), body);
         data.extend_from_slice(rest.as_bytes());
         let (_, frame) = parse_frame(&data).unwrap();
-        assert_eq!(frame.command, b"MESSAGE");
         let headers_expect: Vec<(&[u8], &[u8])> = vec![
-            (&b"destination"[..], &b"datafeeds.here.co.uk"[..]),
-            (b"message-id", b"12345"),
-            (b"subscription", b"some-id"),
+            (&b"destination"[..], &b"/queue/a"[..]),
+            (b"content-type", b"text/html;charset=utf-8"),
             (b"content-length", b"50"),
         ];
-        let fh: Vec<_> = frame.headers.iter().map(|&(k, ref v)| (k, &**v)).collect();
-        assert_eq!(fh, headers_expect);
-        assert_eq!(frame.body, Some(body.as_bytes()));
-        frame.to_server_msg().unwrap();
-        // TODO to_frame for FromServer
-        // let roundtrip = stomp.to_frame().serialize();
-        // assert_eq!(roundtrip, data);
+
+        assert_eq!(frame.command, b"SEND");
+        parse_and_serialize_to_server(&data, frame, headers_expect, Some(body.as_bytes()));
     }
 }
