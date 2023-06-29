@@ -76,6 +76,9 @@ impl Decoder for ClientCodec {
         let f = frame::nom7_parse_frame(src);
         let ff = Message::<FromServer>::from_frame(f);
         ff.map(Some)
+
+        // TODO: Implement the offset to jump to the next frame
+
         // let (item, offset) = match frame::parse_frame(src) {
         //     Ok((remain, frame)) => (
         //         Message::<FromServer>::from_frame(frame),
