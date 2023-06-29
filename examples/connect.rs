@@ -16,7 +16,7 @@ use tokio_stomp_2::*;
 async fn main() -> Result<(), anyhow::Error> {
     let conn = client::connect("127.0.0.1:61613", None, None).await?;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     let (mut sink, stream) = conn.split();
 
@@ -24,7 +24,7 @@ async fn main() -> Result<(), anyhow::Error> {
         sink.send(client::subscribe("rusty", "myid")).await?;
         println!("Subscribe sent");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(2000)).await;
 
         sink.send(
             ToServer::Send {
@@ -38,13 +38,13 @@ async fn main() -> Result<(), anyhow::Error> {
         .await?;
         println!("Message sent");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(2000)).await;
 
         sink.send(ToServer::Unsubscribe { id: "myid".into() }.into())
             .await?;
         println!("Unsubscribe sent");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(2000)).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         sink.send(ToServer::Disconnect { receipt: None }.into())
@@ -57,6 +57,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // Listen from the main thread. Once the Disconnect message is sent from
     // the sender thread, the server will disconnect the client and the future
     // will resolve, ending the program
+    tokio::time::sleep(Duration::from_millis(2000)).await;
     let fut2 = stream.try_for_each(|item| {
         if let FromServer::Message { body, .. } = item.content {
             println!(
@@ -64,7 +65,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 String::from_utf8_lossy(&body.unwrap())
             );
         } else {
-            println!("{:?}", item);
+            println!("xxxx: {:?}", item);
         }
         ok(())
     });

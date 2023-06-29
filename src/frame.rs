@@ -100,7 +100,7 @@ fn nom7_split_header(i: &[u8]) -> IResult<&[u8], SplitHeaderTuple> {
 }
 
 pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
-    println!("Frame Parser:");
+    // println!("Frame Parser:");
     // first word until new line
     let command = take_while(is_alphanumeric);
     // double new line -> end of headers
@@ -113,10 +113,10 @@ pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
     let (rest, (parsed_command, (headers_tuple, (_, _)))) =
         (&command, all_headers).parse(input).unwrap();
 
-    println!(
-        "command: {:?}",
-        std::str::from_utf8(parsed_command).unwrap()
-    );
+    // println!(
+    //     "command: {:?}",
+    //     std::str::from_utf8(parsed_command).unwrap()
+    // );
 
     let p_headers: Vec<(&[u8], Cow<'_, [u8]>)> = headers_tuple
         .clone()
@@ -124,14 +124,14 @@ pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
         .map(|(_, k, _, v)| (k, Cow::Borrowed(v)))
         .collect();
 
-    println!("Headers:");
-    for (k, v) in &p_headers {
-        println!(
-            "  {:?}:{:?}",
-            std::str::from_utf8(k),
-            std::str::from_utf8(v)
-        )
-    }
+    // println!("Headers:");
+    // for (k, v) in &p_headers {
+    //     println!(
+    //         "  {:?}:{:?}",
+    //         std::str::from_utf8(k),
+    //         std::str::from_utf8(v)
+    //     )
+    // }
 
     let body_length = match p_headers.iter().position(|(k, _)| k == b"content-length") {
         Some(index) => p_headers.get(index).map(|(_, b)| {
@@ -153,10 +153,10 @@ pub(crate) fn nom7_parse_frame(input: &[u8]) -> Frame {
         Ok((_rest, bd)) => Some(bd),
         Err(_) => None,
     };
-    println!(
-        "Body: {:?}",
-        std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
-    );
+    // println!(
+    //     "Body: {:?}",
+    //     std::str::from_utf8(parsed_body.unwrap_or(b"")).unwrap()
+    // );
 
     Frame {
         command: parsed_command,
