@@ -1,6 +1,15 @@
 use anyhow::{anyhow, bail};
 use bytes::{BufMut, BytesMut};
 
+use nom::{
+    bytes::streaming::{is_not, tag, take, take_until},
+    character::streaming::{alpha1, line_ending, not_line_ending},
+    combinator::{complete, opt},
+    multi::{count, many0, many_till},
+    sequence::{delimited, separated_pair, terminated, tuple},
+    IResult, Parser,
+};
+
 use std::borrow::Cow;
 
 use crate::{AckMode, FromServer, Message, Result, ToServer};
@@ -75,22 +84,6 @@ impl<'a> Frame<'a> {
 }
 
 // Nom definitions
-
-named!(eol, preceded!(opt!(tag!("\r")), tag!("\n")));
-
-named!(
-    parse_header<(&[u8], Cow<[u8]>)>,
-    pair!(
-        take_until_either!(":\n"),
-        preceded!(
-            tag!(":"),
-            map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(
-                strip_cr(bytes)
-            ))
-        )
-    )
-);
-
 fn get_content_length(headers: &[(&[u8], Cow<[u8]>)]) -> Option<u32> {
     for h in headers {
         if h.0 == b"content-length" {
@@ -110,33 +103,42 @@ fn is_empty_slice(s: &[u8]) -> Option<&[u8]> {
     }
 }
 
-named!(
-    pub(crate) parse_frame<Frame>,
-    do_parse!(
-        many0!(eol)
-            >> command: map!(take_until_and_consume!("\n"), strip_cr)
-            >> headers: many0!(parse_header)
-            >> eol
-            >> body: switch!(value!(get_content_length(&headers)),
-                Some(v) => map!(take!(v), Some) |
-                None => map!(take_until!("\x00"), is_empty_slice)
-            )
-            >> tag!("\x00")
-            >> many0!(complete!(eol))
-            >> (Frame {
-                command,
-                headers,
-                body,
-            })
-    )
-);
+pub(crate) fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
+    // read stream until header end
+    many_till(take(1_usize), count(line_ending, 2))(input)?;
 
-fn strip_cr(buf: &[u8]) -> &[u8] {
-    if let Some(&b'\r') = buf.last() {
-        &buf[..buf.len() - 1]
-    } else {
-        buf
-    }
+    let (input, (command, headers)) = tuple((
+        delimited(opt(complete(line_ending)), alpha1, line_ending), // command
+        terminated(
+            many0(parse_header), // header
+            line_ending,
+        ),
+    ))(input)?;
+
+    let (input, body) = match get_content_length(&headers) {
+        None => take_until("\x00").map(is_empty_slice).parse(input)?,
+        Some(length) => take(length).map(Some).parse(input)?,
+    };
+
+    let (input, _) = tuple((tag("\x00"), opt(complete(line_ending))))(input)?;
+
+    Ok((
+        input,
+        Frame {
+            command,
+            headers,
+            body,
+        },
+    ))
+}
+
+fn parse_header(input: &[u8]) -> IResult<&[u8], (&[u8], Cow<[u8]>)> {
+    complete(separated_pair(
+        is_not(":\r\n"),
+        tag(":"),
+        terminated(not_line_ending, line_ending).map(Cow::Borrowed),
+    ))
+    .parse(input)
 }
 
 fn fetch_header<'a>(headers: &'a [(&'a [u8], Cow<'a, [u8]>)], key: &'a str) -> Option<String> {
