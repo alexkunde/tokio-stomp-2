@@ -13,15 +13,15 @@ use nom::{
 use std::borrow::Cow;
 
 use crate::{AckMode, FromServer, Message, Result, ToServer};
-
 type HeaderTuple<'a> = (&'a [u8], Option<Cow<'a, [u8]>>);
+type Header<'a> = (&'a [u8], Cow<'a, [u8]>);
 
 #[derive(Debug)]
 pub(crate) struct Frame<'a> {
     command: &'a [u8],
     // TODO use ArrayVec to keep headers on the stack
     // (makes this object zero-allocation)
-    headers: Vec<(&'a [u8], Cow<'a, [u8]>)>,
+    headers: Vec<Header<'a>>,
     body: Option<&'a [u8]>,
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn parse_frame(input: &[u8]) -> IResult<&[u8], Frame> {
     ))
 }
 
-fn parse_header(input: &[u8]) -> IResult<&[u8], (&[u8], Cow<[u8]>)> {
+fn parse_header(input: &[u8]) -> IResult<&[u8], Header> {
     complete(separated_pair(
         is_not(":\r\n"),
         tag(":"),
