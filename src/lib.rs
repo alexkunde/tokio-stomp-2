@@ -1,8 +1,5 @@
 //! tokio-stomp - A library for asynchronous streaming of STOMP messages
 
-#[macro_use]
-extern crate nom;
-
 use custom_debug_derive::CustomDebug;
 use frame::Frame;
 
