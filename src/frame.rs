@@ -136,7 +136,10 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], Header> {
     complete(separated_pair(
         is_not(":\r\n"),
         tag(":"),
-        terminated(not_line_ending, line_ending).map(Cow::Borrowed),
+        terminated(
+            Parser::or(not_line_ending, tag("")), 
+            line_ending
+        ).map(Cow::Borrowed),
     ))
     .parse(input)
 }
