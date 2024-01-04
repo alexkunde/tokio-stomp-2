@@ -68,6 +68,11 @@ impl<
         let connector = self.__build();
         connector.connect().await
     }
+
+    pub fn msg(self) -> Message<ToServer> {
+        let connector = self.__build();
+        connector.msg()
+    }
 }
 
 impl<S: tokio::net::ToSocketAddrs, V: Into<String>> Connector<S, V> {
@@ -83,6 +88,24 @@ impl<S: tokio::net::ToSocketAddrs, V: Into<String>> Connector<S, V> {
         )
         .await?;
         Ok(transport)
+    }
+
+    pub fn msg(self) -> Message<ToServer> {
+        let extra_headers = self
+            .headers
+            .into_iter()
+            .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+            .collect();
+        Message {
+            content: ToServer::Connect {
+                accept_version: "1.2".into(),
+                host: self.virtualhost.into(),
+                login: self.login,
+                passcode: self.passcode,
+                heartbeat: None,
+            },
+            extra_headers,
+        }
     }
 }
 
@@ -245,4 +268,66 @@ impl Encoder<Message<ToServer>> for ClientCodec {
         item.to_frame().serialize(dst);
         Ok(())
     }
+}
+
+#[test]
+fn subscription_message() {
+    let headers = vec![(
+        "activemq.subscriptionName".to_string(),
+        "ClientTest".to_string(),
+    )];
+    let subscribe_msg = Subscriber::builder()
+        .destination("queue.test")
+        .id("custom-subscriber-id")
+        .headers(headers.clone())
+        .subscribe();
+    let mut expected: Message<ToServer> = ToServer::Subscribe {
+        destination: "queue.test".to_string(),
+        id: "custom-subscriber-id".to_string(),
+        ack: None,
+    }
+    .into();
+    expected.extra_headers = headers
+        .into_iter()
+        .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+        .collect();
+
+    let mut expected_buffer = BytesMut::new();
+    expected.to_frame().serialize(&mut expected_buffer);
+    let mut actual_buffer = BytesMut::new();
+    subscribe_msg.to_frame().serialize(&mut actual_buffer);
+
+    assert_eq!(expected_buffer, actual_buffer);
+}
+
+#[test]
+fn connection_message() {
+    let headers = vec![("client-id".to_string(), "ClientTest".to_string())];
+    let connect_msg = Connector::builder()
+        .server("stomp.example.com")
+        .virtualhost("virtual.stomp.example.com")
+        .login(Some("guest_login".to_string()))
+        .passcode(Some("guest_passcode".to_string()))
+        .headers(headers.clone())
+        .msg();
+
+    let mut expected: Message<ToServer> = ToServer::Connect {
+        accept_version: "1.2".into(),
+        host: "virtual.stomp.example.com".into(),
+        login: Some("guest_login".to_string()),
+        passcode: Some("guest_passcode".to_string()),
+        heartbeat: None,
+    }
+    .into();
+    expected.extra_headers = headers
+        .into_iter()
+        .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec()))
+        .collect();
+
+    let mut expected_buffer = BytesMut::new();
+    expected.to_frame().serialize(&mut expected_buffer);
+    let mut actual_buffer = BytesMut::new();
+    connect_msg.to_frame().serialize(&mut actual_buffer);
+
+    assert_eq!(expected_buffer, actual_buffer);
 }
